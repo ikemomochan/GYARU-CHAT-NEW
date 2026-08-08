@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fff7fb" />
+    <title>GYARU-CHAT</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="avatar" aria-hidden="true">M</div>
+        <div class="identity">
+          <h1>Mem0 Chat</h1>
+          <p><span class="status-dot"></span><span id="model-label">接続確認中</span></p>
+        </div>
+        <button id="clear-button" class="ghost-button" type="button">履歴を消す</button>
+      </header>
+
+      <section id="notice" class="notice hidden" role="status"></section>
+
+      <section id="messages" class="messages" aria-live="polite">
+        <div class="message-row assistant">
+          <div class="bubble">
+            やっほー！なんでも聞かしてな！
+          </div>
+        </div>
+      </section>
+
+      <form id="chat-form" class="composer">
+        <textarea
+          id="message-input"
+          rows="1"
+          maxlength="20000"
+          placeholder="メッセージを入力..."
+          aria-label="メッセージ"
+          required
+        ></textarea>
+        <button id="send-button" type="submit" aria-label="送信">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3.4 20.4 21 12 3.4 3.6l.2 6.5L16 12 3.6 13.9l-.2 6.5Z" />
+          </svg>
+        </button>
+      </form>
+    </main>
+    <script src="/static/app.js" defer></script>
+</body>
+</html>
