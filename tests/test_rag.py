@@ -57,6 +57,7 @@ def test_retriever_ranks_and_reuses_cache(tmp_path: Path) -> None:
     )
     result = retriever.retrieve("りんごについて", top_k=1)
     assert result[0]["output"] == "果物の話"
+    assert result[0]["score"] == pytest.approx(1.0)
     assert cache_path.exists()
     assert embeddings.calls == 2  # build index + embed query
 

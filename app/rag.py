@@ -46,11 +46,19 @@ class FewShotRetriever:
         query_result = self.client.embeddings.create(model=self.model, input=query)
         query_vector = query_result.data[0].embedding
         ranked = sorted(
-            zip(self._examples, self._vectors, strict=True),
-            key=lambda pair: cosine_similarity(query_vector, pair[1]),
+            (
+                (example, cosine_similarity(query_vector, vector))
+                for example, vector in zip(
+                    self._examples, self._vectors, strict=True
+                )
+            ),
+            key=lambda pair: pair[1],
             reverse=True,
         )
-        return [example for example, _ in ranked[:top_k]]
+        return [
+            {**example, "score": score}
+            for example, score in ranked[:top_k]
+        ]
 
     def _ensure_index(self) -> None:
         if self._examples is not None and self._vectors is not None:

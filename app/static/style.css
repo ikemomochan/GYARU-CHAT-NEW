@@ -141,6 +141,57 @@ button, textarea { font: inherit; }
 }
 .user .message-meta { text-align: right; }
 
+.references {
+  width: min(100%, 560px);
+  margin: 6px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.references summary {
+  width: fit-content;
+  padding: 4px 6px;
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.references summary:hover {
+  color: #665760;
+  background: #f7f1f5;
+}
+
+.reference-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.reference-item {
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: #554a51;
+  background: #fffafd;
+}
+
+.reference-heading {
+  margin-bottom: 5px;
+  color: #9b4770;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.reference-item p {
+  margin: 3px 0;
+  line-height: 1.5;
+}
+
+.reference-item p span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .typing .bubble { display: flex; gap: 5px; padding-block: 15px; }
 .typing span {
   width: 6px;
