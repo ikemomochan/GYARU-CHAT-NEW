@@ -1,6 +1,8 @@
 # Mem0 + RAG Chat
 
-Mem0による長期記憶と、ローカルfew-shot例のRAG検索を組み合わせた、最小構成のDM風チャットです。最終応答にはOpenAI Responses APIを使い、初期モデルは `gpt-5.6-luna` です。
+Mem0による長期記憶と、ローカルfew-shot例のRAG検索を組み合わせた、最小構成のDM風チャットです。内容重視の下書き生成は `gpt-5.6-sol` と `claude-sonnet-5` を `.env` で切り替えられます。口調チェック、記憶、要約、EmbeddingはOpenAI APIを使います。
+
+`MODE` で会話方式を切り替えられます。`simple` は `SIMPLE_CHAT_SYSTEM_PROMPT`、`prompt` は既存の `CHAT_SYSTEM_PROMPT` だけで会話し、どちらもRAG・Mem0・会話要約・口調補正を使いません。`Mem0` は以下のフル構成で動作します。
 
 ## 処理フロー
 
@@ -15,6 +17,8 @@ Mem0による長期記憶と、ローカルfew-shot例のRAG検索を組み合�
 
 Mem0検索とfew-shot検索は並列実行します。few-shot例のEmbeddingは `.data/few_shot_embeddings.json` にキャッシュされ、例またはEmbeddingモデルが変わった場合だけ再作成されます。
 
+各回答の下にある「参照した口調例を見る」を開くと、口調整形に渡した5件について、例ID・標準表現・ギャル表現・コサイン類似度を確認できます。この参照情報はブラウザの会話履歴にも保存されます。
+
 ## セットアップ
 
 Python 3.11以降を推奨します。
@@ -25,13 +29,24 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-`.env` の `OPENAI_API_KEY` を設定します。
+`MODE=Mem0` を使う場合は `.env` の `OPENAI_API_KEY` を設定します。OpenAIを下書き生成にも使う場合は次の設定です。
 
 ```dotenv
 OPENAI_API_KEY=sk-...
-OPENAI_CHAT_MODEL=gpt-5.6-luna
+BASE_MODEL_PROVIDER=openai
+BASE_MODEL=gpt-5.6-sol
 OPENAI_MEMORY_MODEL=gpt-5.6-luna
 ```
+
+下書き生成をClaude Sonnet 5へ切り替える場合は、次の3行を設定してサーバーを再起動します。
+
+```dotenv
+ANTHROPIC_API_KEY=sk-ant-...
+BASE_MODEL_PROVIDER=anthropic
+BASE_MODEL=claude-sonnet-5
+```
+
+`MODE=Mem0` でClaudeを選択した場合も、後段の口調チェック、Mem0、会話要約、RAG Embeddingに使うため `OPENAI_API_KEY` は必要です。`simple` / `prompt` でClaudeを使う場合は `ANTHROPIC_API_KEY` だけで動作します。
 
 起動:
 
@@ -57,6 +72,7 @@ uvicorn app.main:app --reload
 - `app/memory.py`: Mem0 OSS + ローカルQdrantとADD / UPDATE / DELETE処理
 - `app/conversation.py`: 会話履歴とローリング要約のSQLite永続化
 - `app/rag.py`: few-shot例のEmbedding、キャッシュ、コサイン類似度検索
+- `app/base_model.py`: OpenAI / Anthropicの下書き生成API切替
 - `app/chat.py`: 検索と最終応答のオーケストレーション
 - `data/gyaru_rag_documents.jsonl`: 標準表現からギャル口調への言い換え一覧
 - `app/static/`: DM風UI
@@ -69,7 +85,11 @@ Mem0 V3の標準抽出はADD-onlyですが、このアプリでは旧方式に�
 
 | 変数 | 既定値 | 用途 |
 | --- | --- | --- |
-| `OPENAI_CHAT_MODEL` | `gpt-5.6-luna` | 内容重視の下書き生成モデル |
+| `MODE` | `Mem0` | 会話方式（`simple` / `prompt` / `Mem0`） |
+| `BASE_MODEL_PROVIDER` | `openai` | 下書き生成プロバイダー（`openai` / `anthropic`） |
+| `BASE_MODEL` | `gpt-5.6-sol` | 内容重視の下書き生成モデル |
+| `OPENAI_API_KEY` | なし | OpenAI使用時に必要。`Mem0` では生成プロバイダーにかかわらず必須 |
+| `ANTHROPIC_API_KEY` | なし | Claudeを選ぶ場合のAnthropic APIキー |
 | `OPENAI_STYLE_MODEL` | `gpt-5.6-luna` | few-shot照合・口調整形モデル |
 | `OPENAI_MEMORY_MODEL` | `gpt-5.6-luna` | Mem0の記憶抽出モデル |
 | `OPENAI_SUMMARY_MODEL` | `gpt-5.6-luna` | ローリング会話要約モデル |

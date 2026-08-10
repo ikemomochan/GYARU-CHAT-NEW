@@ -27,7 +27,7 @@ def get_chat_service() -> ChatService:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if settings.reset_state_on_start:
+    if settings.mode == "Mem0" and settings.reset_state_on_start:
         if settings.api_key_configured:
             get_chat_service().reset_state()
         else:
@@ -63,8 +63,12 @@ async def health() -> dict[str, str]:
 async def public_config() -> PublicConfig:
     return PublicConfig(
         runtime_id=RUNTIME_ID,
-        reset_state_on_start=settings.reset_state_on_start,
-        chat_model=settings.chat_model,
+        mode=settings.mode,
+        reset_state_on_start=(
+            settings.reset_state_on_start and settings.mode == "Mem0"
+        ),
+        base_model_provider=settings.base_model_provider,
+        base_model=settings.base_model,
         style_model=settings.style_model,
         memory_model=settings.memory_model,
         summary_model=settings.summary_model,
@@ -72,15 +76,17 @@ async def public_config() -> PublicConfig:
         rag_top_k=settings.rag_top_k,
         memory_top_k=settings.memory_top_k,
         api_key_configured=settings.api_key_configured,
+        missing_api_keys=list(settings.missing_api_keys),
     )
 
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     if not settings.api_key_configured:
+        missing_keys = ", ".join(settings.missing_api_keys)
         raise HTTPException(
             status_code=503,
-            detail=".env の OPENAI_API_KEY を設定してください。",
+            detail=f".env の {missing_keys} を設定してください。",
         )
     try:
         return await get_chat_service().reply(request)

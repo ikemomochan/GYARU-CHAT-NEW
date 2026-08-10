@@ -6,16 +6,18 @@ from typing import Any
 
 from openai import OpenAI
 
+from app.base_model import BaseModelService
 from app.config import Settings
 from app.conversation import ConversationService
 from app.memory import MemoryService
 from app.prompts import (
+    SIMPLE_CHAT_SYSTEM_PROMPT,
     OUTPUT_CHECK_PROMPT,
     build_chat_system_prompt,
     build_output_check_input,
 )
 from app.rag import FewShotRetriever
-from app.schemas import ChatRequest, ChatResponse
+from app.schemas import ChatRequest, ChatResponse, ReferencedExample
 
 
 class ChatService:
@@ -26,21 +28,44 @@ class ChatService:
         memory_service: MemoryService | None = None,
         retriever: FewShotRetriever | None = None,
         conversation_service: ConversationService | None = None,
+        base_model_service: BaseModelService | None = None,
     ) -> None:
         self.settings = settings
-        self.client = client or OpenAI(api_key=settings.openai_api_key)
-        self.memory = memory_service or MemoryService(settings, self.client)
-        self.retriever = retriever or FewShotRetriever(
-            client=self.client,
-            model=settings.embedding_model,
-            examples_path=settings.rag_examples_path,
-            cache_path=settings.rag_cache_path,
+        openai_api_key = (
+            settings.openai_api_key
+            if settings.openai_api_key_configured
+            else "unused-openai-key"
         )
-        self.conversation = conversation_service or ConversationService(
+        self.client = client or OpenAI(api_key=openai_api_key)
+        self.memory: MemoryService | None = memory_service
+        self.retriever: FewShotRetriever | None = retriever
+        self.conversation: ConversationService | None = conversation_service
+        if settings.mode == "Mem0":
+            self.memory = self.memory or MemoryService(settings, self.client)
+            self.retriever = self.retriever or FewShotRetriever(
+                client=self.client,
+                model=settings.embedding_model,
+                examples_path=settings.rag_examples_path,
+                cache_path=settings.rag_cache_path,
+            )
+            self.conversation = self.conversation or ConversationService(
+                settings, self.client
+            )
+        self.base_model = base_model_service or BaseModelService(
             settings, self.client
         )
 
     async def reply(self, request: ChatRequest) -> ChatResponse:
+        if self.settings.mode != "Mem0":
+            return await self._reply_prompt_only(request)
+
+        if (
+            self.memory is None
+            or self.retriever is None
+            or self.conversation is None
+        ):
+            raise RuntimeError("Mem0 mode services are not initialized")
+
         memory_result, example_result, summary_result = await asyncio.gather(
             asyncio.to_thread(self.memory.search, request.message, request.user_id),
             asyncio.to_thread(
@@ -90,18 +115,12 @@ class ChatService:
             memories, conversation_summary=conversation_summary
         )
 
-        draft_response = await asyncio.to_thread(
-            self.client.responses.create,
-            model=self.settings.chat_model,
-            instructions=system_prompt,
-            input=input_messages,
-            reasoning={"effort": self.settings.reasoning_effort},
-            max_output_tokens=self.settings.max_output_tokens,
-            safety_identifier=self._safety_identifier(request.user_id),
+        draft = await asyncio.to_thread(
+            self.base_model.generate,
+            system_prompt,
+            input_messages,
+            self._safety_identifier(request.user_id),
         )
-        draft = draft_response.output_text.strip()
-        if not draft:
-            raise RuntimeError("OpenAI returned an empty response")
 
         try:
             style_response = await asyncio.to_thread(
@@ -158,15 +177,54 @@ class ChatService:
             reply=reply,
             recalled_memories=len(memories),
             retrieved_examples=len(examples),
+            referenced_examples=[
+                ReferencedExample(
+                    id=str(example.get("id", f"rank-{index}")),
+                    source_text=str(example["input"]),
+                    gyaru_text=str(example["output"]),
+                    score=(
+                        float(example["score"])
+                        if example.get("score") is not None
+                        else None
+                    ),
+                )
+                for index, example in enumerate(examples, start=1)
+            ],
             warnings=warnings,
         )
 
+    async def _reply_prompt_only(self, request: ChatRequest) -> ChatResponse:
+        history = request.history[-self.settings.chat_history_limit :]
+        input_messages = [message.model_dump() for message in history]
+        input_messages.append({"role": "user", "content": request.message})
+        system_prompt = (
+            SIMPLE_CHAT_SYSTEM_PROMPT
+            if self.settings.mode == "simple"
+            else build_chat_system_prompt([], conversation_summary="")
+        )
+        reply = await asyncio.to_thread(
+            self.base_model.generate,
+            system_prompt,
+            input_messages,
+            self._safety_identifier(request.user_id),
+        )
+        return ChatResponse(
+            reply=reply,
+            recalled_memories=0,
+            retrieved_examples=0,
+        )
+
     def close(self) -> None:
-        self.memory.close()
+        if self.memory is not None:
+            self.memory.close()
 
     def reset_state(self) -> None:
-        self.conversation.reset()
-        self.memory.reset()
+        if self.settings.mode != "Mem0":
+            return
+        if self.conversation is not None:
+            self.conversation.reset()
+        if self.memory is not None:
+            self.memory.reset()
 
     @staticmethod
     def _safety_identifier(user_id: str) -> str:

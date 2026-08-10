@@ -39,8 +39,11 @@ def _boolean(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
+    mode: str
     openai_api_key: str
-    chat_model: str
+    anthropic_api_key: str
+    base_model_provider: str
+    base_model: str
     style_model: str
     memory_model: str
     summary_model: str
@@ -60,13 +63,50 @@ class Settings:
     rag_cache_path: Path
 
     @property
-    def api_key_configured(self) -> bool:
+    def openai_api_key_configured(self) -> bool:
         key = self.openai_api_key.strip()
         return bool(key) and key != "sk-your-key-here"
+
+    @property
+    def anthropic_api_key_configured(self) -> bool:
+        key = self.anthropic_api_key.strip()
+        return bool(key) and key != "sk-ant-your-key-here"
+
+    @property
+    def missing_api_keys(self) -> tuple[str, ...]:
+        missing: list[str] = []
+        # Mem0 mode always needs OpenAI for style, memory, summaries, and embeddings.
+        if (
+            self.base_model_provider == "openai" or self.mode == "Mem0"
+        ) and not self.openai_api_key_configured:
+            missing.append("OPENAI_API_KEY")
+        if (
+            self.base_model_provider == "anthropic"
+            and not self.anthropic_api_key_configured
+        ):
+            missing.append("ANTHROPIC_API_KEY")
+        return tuple(missing)
+
+    @property
+    def api_key_configured(self) -> bool:
+        return not self.missing_api_keys
 
 
 @lru_cache
 def get_settings() -> Settings:
+    raw_mode = os.getenv("MODE", "Mem0").strip().lower()
+    modes = {"simple": "simple", "prompt": "prompt", "mem0": "Mem0"}
+    if raw_mode not in modes:
+        raise ValueError("MODE must be one of: simple, prompt, Mem0")
+
+    base_model_provider = os.getenv("BASE_MODEL_PROVIDER", "openai").lower()
+    allowed_providers = {"openai", "anthropic"}
+    if base_model_provider not in allowed_providers:
+        raise ValueError(
+            "BASE_MODEL_PROVIDER must be one of: "
+            + ", ".join(sorted(allowed_providers))
+        )
+
     reasoning_effort = os.getenv("OPENAI_REASONING_EFFORT", "low").lower()
     allowed_efforts = {"none", "low", "medium", "high", "xhigh", "max"}
     if reasoning_effort not in allowed_efforts:
@@ -76,8 +116,11 @@ def get_settings() -> Settings:
         )
 
     return Settings(
+        mode=modes[raw_mode],
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-5.6-luna"),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        base_model_provider=base_model_provider,
+        base_model=os.getenv("BASE_MODEL", "gpt-5.6-sol"),
         style_model=os.getenv("OPENAI_STYLE_MODEL", "gpt-5.6-luna"),
         memory_model=os.getenv("OPENAI_MEMORY_MODEL", "gpt-5.6-luna"),
         summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.6-luna"),

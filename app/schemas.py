@@ -37,13 +37,23 @@ class ChatResponse(BaseModel):
     reply: str
     recalled_memories: int
     retrieved_examples: int
+    referenced_examples: list["ReferencedExample"] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ReferencedExample(BaseModel):
+    id: str
+    source_text: str
+    gyaru_text: str
+    score: float | None = None
 
 
 class PublicConfig(BaseModel):
     runtime_id: str
+    mode: Literal["simple", "prompt", "Mem0"]
     reset_state_on_start: bool
-    chat_model: str
+    base_model_provider: str
+    base_model: str
     style_model: str
     memory_model: str
     summary_model: str
@@ -51,3 +61,4 @@ class PublicConfig(BaseModel):
     rag_top_k: int
     memory_top_k: int
     api_key_configured: bool
+    missing_api_keys: list[str]

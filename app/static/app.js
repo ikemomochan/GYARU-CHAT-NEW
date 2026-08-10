@@ -38,7 +38,7 @@ function saveHistory() {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-50)));
 }
 
-function addMessage(role, content, meta = "") {
+function addMessage(role, content, meta = "", references = []) {
   const row = document.createElement("div");
   row.className = `message-row ${role}`;
   const body = document.createElement("div");
@@ -52,10 +52,54 @@ function addMessage(role, content, meta = "") {
     metaElement.textContent = meta;
     body.appendChild(metaElement);
   }
+  if (role === "assistant" && references.length) {
+    body.appendChild(buildReferences(references));
+  }
   row.appendChild(body);
   messagesElement.appendChild(row);
   messagesElement.scrollTop = messagesElement.scrollHeight;
   return row;
+}
+
+function buildReferences(references) {
+  const details = document.createElement("details");
+  details.className = "references";
+  const summary = document.createElement("summary");
+  summary.textContent = `参照した口調例を見る（${references.length}件）`;
+  details.appendChild(summary);
+
+  const list = document.createElement("div");
+  list.className = "reference-list";
+  references.forEach((reference, index) => {
+    const item = document.createElement("article");
+    item.className = "reference-item";
+
+    const heading = document.createElement("div");
+    heading.className = "reference-heading";
+    const score = Number.isFinite(reference.score)
+      ? ` · 類似度 ${reference.score.toFixed(3)}`
+      : "";
+    heading.textContent = `${index + 1}. ${reference.id}${score}`;
+    item.appendChild(heading);
+    item.appendChild(
+      buildReferenceLine("標準", reference.source_text),
+    );
+    item.appendChild(
+      buildReferenceLine("ギャル", reference.gyaru_text),
+    );
+    list.appendChild(item);
+  });
+  details.appendChild(list);
+  return details;
+}
+
+function buildReferenceLine(label, text) {
+  const line = document.createElement("p");
+  const labelElement = document.createElement("span");
+  labelElement.textContent = `${label}: `;
+  line.appendChild(labelElement);
+  line.appendChild(document.createTextNode(text));
+  return line;
 }
 
 function addTyping() {
@@ -89,9 +133,11 @@ async function loadConfig() {
     if (!response.ok) throw new Error("config request failed");
     const config = await response.json();
     syncRuntime(config);
-    modelLabel.textContent = `${config.chat_model} · Mem0 + RAG`;
+    const modeLabel = config.mode === "Mem0" ? "Mem0 + RAG" : config.mode;
+    modelLabel.textContent = `${config.base_model} · ${modeLabel}`;
     if (!config.api_key_configured) {
-      showNotice(".env の OPENAI_API_KEY を設定してからメッセージを送ってください。 ");
+      const missing = config.missing_api_keys.join(" / ");
+      showNotice(`.env の ${missing} を設定してからメッセージを送ってください。`);
     }
   } catch {
     modelLabel.textContent = "サーバーに接続できません";
@@ -118,7 +164,14 @@ function syncRuntime(config) {
   localStorage.setItem(RUNTIME_KEY, config.runtime_id);
 }
 
-for (const message of history) addMessage(message.role, message.content);
+for (const message of history) {
+  addMessage(
+    message.role,
+    message.content,
+    "",
+    message.referenced_examples || [],
+  );
+}
 loadConfig();
 
 input.addEventListener("input", resizeInput);
@@ -170,8 +223,12 @@ form.addEventListener("submit", async (event) => {
       throw new Error(data.detail || "応答に失敗しました。");
     }
     const meta = `記憶 ${data.recalled_memories}件 · 例 ${data.retrieved_examples}件`;
-    addMessage("assistant", data.reply, meta);
-    history.push({ role: "assistant", content: data.reply });
+    addMessage("assistant", data.reply, meta, data.referenced_examples || []);
+    history.push({
+      role: "assistant",
+      content: data.reply,
+      referenced_examples: data.referenced_examples || [],
+    });
     saveHistory();
     if (data.warnings?.length) showNotice(data.warnings.join(" "));
   } catch (error) {
