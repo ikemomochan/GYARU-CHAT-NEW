@@ -11,6 +11,7 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
         "settings",
         replace(
             main.settings,
+            mode="Mem0",
             openai_api_key="",
             reset_state_on_start=False,
         ),
