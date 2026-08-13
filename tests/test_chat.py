@@ -93,7 +93,9 @@ def test_chat_combines_memory_rag_and_saves_conversation() -> None:
     memory = FakeMemory()
     conversation = FakeConversation()
     base_model = FakeBaseModel()
-    settings = replace(get_settings(), openai_api_key="test-key")
+    settings = replace(
+        get_settings(), mode="Mem0", openai_api_key="test-key"
+    )
     service = ChatService(
         settings=settings,
         client=client,
@@ -138,7 +140,9 @@ def test_reset_state_clears_memory_and_conversation() -> None:
     memory = FakeMemory()
     conversation = FakeConversation()
     service = ChatService(
-        settings=replace(get_settings(), openai_api_key="test-key"),
+        settings=replace(
+            get_settings(), mode="Mem0", openai_api_key="test-key"
+        ),
         client=SimpleNamespace(responses=responses),
         memory_service=memory,
         retriever=FakeRetriever(),

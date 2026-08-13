@@ -1,0 +1,15 @@
+{
+  "run_id": "20260810_114715_065a07a2",
+  "input": "C:\\Users\\peach\\gyaru-chat\\data\\test.csv",
+  "messages_per_round": 5,
+  "rounds": 5,
+  "calls_per_mode": 25,
+  "modes": [
+    "simple",
+    "prompt",
+    "Mem0"
+  ],
+  "base_model_provider": "openai",
+  "base_model": "gpt-5.6-sol",
+  "started_at": "2026-08-10T02:47:15.909625+00:00"
+}

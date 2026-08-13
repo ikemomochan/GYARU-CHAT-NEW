@@ -109,3 +109,13 @@ pytest
 ```
 
 テストではOpenAI APIを呼びません。実APIを使った確認はキー設定後、ブラウザから行ってください。
+
+## 3モード比較実験
+
+`data/test.csv` の各行を会話の1文として、`simple`、`prompt`、`Mem0` の順に自動入力できます。既定ではCSV全体を各モードで25周します。同じ周の全文は会話履歴を引き継ぎ、次の周へ移る前に記憶・会話要約・履歴をリセットします。現在の8文では各モード200応答、合計600応答です。Mem0の実験データは通常のチャットとは別の `.data/experiments/` に保存されます。
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_mode_experiment.py
+```
+
+結果は `result/<実行日時_ID>/simple.csv`、`prompt.csv`、`Mem0.csv` に逐次保存されます。実行条件は同じフォルダの `metadata.json` で確認できます。APIエラーが発生した行も `status=error` として保存され、残りの入力は続行されます。
