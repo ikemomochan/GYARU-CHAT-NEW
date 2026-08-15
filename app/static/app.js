@@ -11,6 +11,7 @@ const CONVERSATION_KEY = "mem0-chat-conversation-id";
 const HISTORY_KEY = "mem0-chat-history";
 const RUNTIME_KEY = "mem0-chat-runtime-id";
 const INITIAL_GREETING = "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー";
+const REQUEST_TIMEOUT_MS = 90_000;
 
 function createClientId() {
   const webCrypto = globalThis.crypto;
@@ -91,8 +92,9 @@ function showNotice(message) {
 
 function setWaiting(value) {
   waiting = value;
-  input.disabled = value;
   sendButton.disabled = value;
+  input.setAttribute("aria-busy", String(value));
+  statusLabel.textContent = value ? "返信を考え中…" : "オンライン";
 }
 
 function resizeInput() {
@@ -180,11 +182,14 @@ form.addEventListener("submit", async (event) => {
   resizeInput();
   setWaiting(true);
   const typing = addTyping();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         message,
         user_id: userId,
@@ -192,18 +197,31 @@ form.addEventListener("submit", async (event) => {
         history: requestHistory,
       }),
     });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "応答に失敗しました。");
+    const responseText = await response.text();
+    let data = {};
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      // RenderなどのプロキシがHTMLエラーを返した場合も送信欄を復帰させる。
     }
+    if (!response.ok) {
+      const retryAfter = response.headers.get("Retry-After");
+      const retryHint = retryAfter ? ` ${retryAfter}秒ほど待ってね。` : "";
+      throw new Error(`${data.detail || "応答に失敗しました。"}${retryHint}`);
+    }
+    if (!data.reply) throw new Error("空の応答が返ってきました。");
     addMessage("assistant", data.reply);
     history.push({ role: "assistant", content: data.reply });
     saveHistory();
     if (data.warnings?.length) showNotice(data.warnings.join(" "));
   } catch (error) {
-    showNotice(error.message || "通信エラーが発生しました。");
-    addMessage("assistant", "ごめん、今うまく応答できなかった。設定かサーバーログを確認してみて。 ");
+    const message = error.name === "AbortError"
+      ? "90秒待っても返事がなかったから送信を止めたよ。もう一度試してみて。"
+      : (error.message || "通信エラーが発生しました。");
+    showNotice(message);
+    addMessage("assistant", "ごめん、今うまく返せなかった。ちょい待ってもう一回送ってみて。 ");
   } finally {
+    window.clearTimeout(timeoutId);
     typing.remove();
     setWaiting(false);
     input.focus();

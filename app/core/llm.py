@@ -9,6 +9,22 @@ StructuredOutput = TypeVar("StructuredOutput", bound=BaseModel)
 ModelMessage = dict[str, str]
 
 
+class LanguageModelError(RuntimeError):
+    """Base error exposed by provider adapters to the application layer."""
+
+
+class LanguageModelRateLimitError(LanguageModelError):
+    pass
+
+
+class LanguageModelTimeoutError(LanguageModelError):
+    pass
+
+
+class LanguageModelConnectionError(LanguageModelError):
+    pass
+
+
 class LanguageModel(Protocol):
     """Minimal interface implemented by OpenAI and future local-model adapters."""
 

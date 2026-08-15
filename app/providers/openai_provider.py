@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from typing import Sequence, TypeVar
 
-from openai import OpenAI
+from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 from pydantic import BaseModel
 
-from app.core.llm import ModelMessage
+from app.core.llm import (
+    LanguageModelConnectionError,
+    LanguageModelRateLimitError,
+    LanguageModelTimeoutError,
+    ModelMessage,
+)
 
 
 StructuredOutput = TypeVar("StructuredOutput", bound=BaseModel)
@@ -25,14 +30,21 @@ class OpenAILanguageModel:
         max_output_tokens: int,
         safety_identifier: str,
     ) -> str:
-        response = self.client.responses.create(
-            model=model,
-            instructions=system_prompt,
-            input=list(messages),
-            reasoning={"effort": self.reasoning_effort},
-            max_output_tokens=max_output_tokens,
-            safety_identifier=safety_identifier,
-        )
+        try:
+            response = self.client.responses.create(
+                model=model,
+                instructions=system_prompt,
+                input=list(messages),
+                reasoning={"effort": self.reasoning_effort},
+                max_output_tokens=max_output_tokens,
+                safety_identifier=safety_identifier,
+            )
+        except RateLimitError as exc:
+            raise LanguageModelRateLimitError from exc
+        except APITimeoutError as exc:
+            raise LanguageModelTimeoutError from exc
+        except APIConnectionError as exc:
+            raise LanguageModelConnectionError from exc
         text = response.output_text.strip()
         if not text:
             raise RuntimeError("OpenAI returned an empty response")
@@ -48,15 +60,22 @@ class OpenAILanguageModel:
         max_output_tokens: int,
         safety_identifier: str,
     ) -> StructuredOutput:
-        response = self.client.responses.parse(
-            model=model,
-            instructions=system_prompt,
-            input=list(messages),
-            text_format=output_type,
-            reasoning={"effort": self.reasoning_effort},
-            max_output_tokens=max_output_tokens,
-            safety_identifier=safety_identifier,
-        )
+        try:
+            response = self.client.responses.parse(
+                model=model,
+                instructions=system_prompt,
+                input=list(messages),
+                text_format=output_type,
+                reasoning={"effort": self.reasoning_effort},
+                max_output_tokens=max_output_tokens,
+                safety_identifier=safety_identifier,
+            )
+        except RateLimitError as exc:
+            raise LanguageModelRateLimitError from exc
+        except APITimeoutError as exc:
+            raise LanguageModelTimeoutError from exc
+        except APIConnectionError as exc:
+            raise LanguageModelConnectionError from exc
         if response.output_parsed is None:
             raise RuntimeError("OpenAI returned no structured output")
         return response.output_parsed

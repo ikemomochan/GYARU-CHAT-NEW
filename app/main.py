@@ -12,6 +12,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.chat import ChatService
 from app.config import PROJECT_ROOT, get_settings
+from app.core.llm import (
+    LanguageModelConnectionError,
+    LanguageModelRateLimitError,
+    LanguageModelTimeoutError,
+)
 from app.core.rate_limit import RateLimitExceeded, SlidingWindowRateLimiter
 from app.schemas import (
     ChatRequest,
@@ -99,7 +104,7 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
             detail=".env の OPENAI_API_KEY を設定してください。",
         )
     try:
-        chat_rate_limiter.acquire(_client_key(request))
+        chat_rate_limiter.acquire(_client_key(request, chat_request.user_id))
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=429,
@@ -108,6 +113,22 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
         ) from exc
     try:
         return await get_chat_service().reply(chat_request)
+    except LanguageModelRateLimitError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="OpenAI側が混み合っています。30秒ほど待ってから送ってね。",
+            headers={"Retry-After": "30"},
+        ) from exc
+    except LanguageModelTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="応答に時間がかかりすぎました。もう一度送ってみてね。",
+        ) from exc
+    except LanguageModelConnectionError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAIに接続できませんでした。少し待ってから試してね。",
+        ) from exc
     except Exception as exc:
         logger.exception("Chat request failed")
         raise HTTPException(
@@ -116,9 +137,10 @@ async def chat(request: Request, chat_request: ChatRequest) -> ChatResponse:
         ) from exc
 
 
-def _client_key(request: Request) -> str:
+def _client_key(request: Request, user_id: str) -> str:
     forwarded_for = request.headers.get("x-forwarded-for", "")
     address = forwarded_for.split(",", maxsplit=1)[0].strip()
     if not address and request.client:
         address = request.client.host
-    return hashlib.sha256((address or "unknown").encode("utf-8")).hexdigest()
+    identity = f"{address or 'unknown'}:{user_id}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()

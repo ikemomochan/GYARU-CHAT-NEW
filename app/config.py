@@ -28,6 +28,17 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
+def _nonnegative_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name, str(default))
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if value < 0:
+        raise ValueError(f"{name} must be zero or greater")
+    return value
+
+
 def _boolean(name: str, default: bool) -> bool:
     raw_value = os.getenv(name, str(default)).strip().lower()
     if raw_value in {"1", "true", "yes", "on"}:
@@ -50,6 +61,8 @@ class Settings:
     summary_model: str
     embedding_model: str
     reasoning_effort: str
+    openai_timeout_seconds: int
+    openai_max_retries: int
     memory_top_k: int
     rag_top_k: int
     style_top_k: int
@@ -108,6 +121,8 @@ def get_settings() -> Settings:
             "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
         ),
         reasoning_effort=reasoning_effort,
+        openai_timeout_seconds=_positive_int("OPENAI_TIMEOUT_SECONDS", 30),
+        openai_max_retries=_nonnegative_int("OPENAI_MAX_RETRIES", 1),
         memory_top_k=_positive_int("MEMORY_TOP_K", 5),
         rag_top_k=max(5, _positive_int("RAG_TOP_K", 5)),
         style_top_k=_positive_int("STYLE_TOP_K", 5),

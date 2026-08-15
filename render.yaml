@@ -26,6 +26,10 @@ services:
         value: text-embedding-3-small
       - key: OPENAI_REASONING_EFFORT
         value: low
+      - key: OPENAI_TIMEOUT_SECONDS
+        value: "30"
+      - key: OPENAI_MAX_RETRIES
+        value: "1"
       - key: MAX_OUTPUT_TOKENS
         value: "1000"
       - key: STYLE_TOP_K

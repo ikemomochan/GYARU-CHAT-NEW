@@ -118,7 +118,7 @@ PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行
 
 `render.yaml` はSingaporeリージョンのFree Web Service、`system_YANS`ブランチの自動デプロイ、`/api/health`のヘルスチェックを設定します。本番ビルドでは `requirements-render.txt` を使い、現在の実行経路で不要なMem0依存をインストールしません。
 
-公開URLでは1 IPにつき60秒間に12メッセージまでに制限しています。値はRenderの `CHAT_RATE_LIMIT` と `CHAT_RATE_WINDOW_SECONDS` で変更できます。公開専用のOpenAI Project API keyを作り、Project Limitsで利用額とモデル別レート制限も設定してください。
+公開URLではIPとブラウザ内IDの組み合わせごとに、60秒間に12メッセージまでに制限しています。値はRenderの `CHAT_RATE_LIMIT` と `CHAT_RATE_WINDOW_SECONDS` で変更できます。公開専用のOpenAI Project API keyを作り、Project Limitsで利用額とモデル別レート制限も設定してください。
 
 Free Web Serviceは無通信時にスリープするため、最初のアクセスに時間がかかる場合があります。またSession Stateはプロセス内だけにあるため、スリープ、再起動、再デプロイで消えます。
 

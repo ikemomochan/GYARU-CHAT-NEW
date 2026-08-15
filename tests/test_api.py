@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.core.llm import LanguageModelRateLimitError
 
 
 class FakeChatService:
@@ -32,6 +33,11 @@ class FakeServiceGetter:
         pass
 
 
+class RateLimitedChatService(FakeChatService):
+    async def reply(self, _request):
+        raise LanguageModelRateLimitError
+
+
 def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None:
     monkeypatch.setattr(
         main,
@@ -51,7 +57,7 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert "りりめろ" in index.text
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in index.text
     assert "style.css?v=mobile-solid-20260815" in index.text
-    assert "app.js?v=mobile-http-20260815" in index.text
+    assert "app.js?v=mobile-recovery-20260815" in index.text
     assert config.status_code == 200
     assert config.json()["llm_provider"] == "openai"
     assert config.json()["strategy_model"] == "gpt-5.6-luna"
@@ -73,6 +79,8 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert "tone_model" not in script
     assert "value = crypto.randomUUID()" not in script
     assert "function createClientId()" in script
+    assert "REQUEST_TIMEOUT_MS = 90_000" in script
+    assert "input.disabled = value" not in script
     assert "サーバーを再起動したので" not in script
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in script
     assert 'url("/fig/UI-background.png")' in styles
@@ -132,3 +140,38 @@ def test_session_reset_endpoint_clears_server_side_state(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert service.reset_calls == [("test-user", "test-conversation")]
+
+
+def test_openai_rate_limit_is_explained_and_retryable(monkeypatch) -> None:
+    service = RateLimitedChatService()
+    monkeypatch.setattr(main, "get_chat_service", FakeServiceGetter(service))
+    monkeypatch.setattr(
+        main,
+        "settings",
+        replace(main.settings, openai_api_key="test-key"),
+    )
+    main.chat_rate_limiter.reset()
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/chat",
+            json={
+                "message": "こんにちは",
+                "user_id": "test-user",
+                "conversation_id": "test-conversation",
+                "history": [],
+            },
+        )
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "30"
+    assert "OpenAI側" in response.json()["detail"]
+
+
+def test_rate_limit_key_separates_clients_on_the_same_ip() -> None:
+    request = SimpleNamespace(
+        headers={"x-forwarded-for": "203.0.113.1"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    assert main._client_key(request, "phone") != main._client_key(request, "pc")

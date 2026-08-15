@@ -5,13 +5,21 @@ from app.core.llm import LanguageModel
 from app.core.retrieval import DialogueContextRetriever, FewShotExampleRetriever
 
 
+def _build_openai_client(settings: Settings):
+    from openai import OpenAI
+
+    return OpenAI(
+        api_key=settings.openai_api_key,
+        timeout=settings.openai_timeout_seconds,
+        max_retries=settings.openai_max_retries,
+    )
+
+
 def build_language_model(settings: Settings) -> LanguageModel:
     if settings.llm_provider == "openai":
-        from openai import OpenAI
-
         from app.providers.openai_provider import OpenAILanguageModel
 
-        client = OpenAI(api_key=settings.openai_api_key)
+        client = _build_openai_client(settings)
         return OpenAILanguageModel(client, settings.reasoning_effort)
     raise ValueError(
         f"LLM provider '{settings.llm_provider}' has no installed adapter"
@@ -20,12 +28,10 @@ def build_language_model(settings: Settings) -> LanguageModel:
 
 def build_few_shot_retriever(settings: Settings) -> FewShotExampleRetriever:
     if settings.llm_provider == "openai":
-        from openai import OpenAI
-
         from app.providers.openai_retrieval import OpenAIFewShotExampleRetriever
         from app.rag import FewShotRetriever
 
-        client = OpenAI(api_key=settings.openai_api_key)
+        client = _build_openai_client(settings)
         return OpenAIFewShotExampleRetriever(
             FewShotRetriever(
                 client=client,
@@ -41,12 +47,10 @@ def build_few_shot_retriever(settings: Settings) -> FewShotExampleRetriever:
 
 def build_principle_retriever(settings: Settings) -> DialogueContextRetriever:
     if settings.llm_provider == "openai":
-        from openai import OpenAI
-
         from app.providers.openai_retrieval import OpenAIPrincipleRetriever
 
         return OpenAIPrincipleRetriever(
-            client=OpenAI(api_key=settings.openai_api_key),
+            client=_build_openai_client(settings),
             model=settings.embedding_model,
             documents_path=settings.principle_rag_path,
             cache_path=settings.principle_rag_cache_path,
