@@ -108,6 +108,20 @@ PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行
 
 接続できない場合は、Windowsのネットワーク設定で信頼できる自宅Wi-Fiのプロファイルが「プライベート」になっているか確認し、Windows Defenderファイアウォールの確認画面ではプライベートネットワーク上のPythonを許可します。公共Wi-Fiでは公開しないでください。
 
+## Renderへ公開する
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fikemomochan%2FGYARU-CHAT-NEW%2Ftree%2Fsystem_YANS)
+
+1. 上のボタンからRenderへサインインします。
+2. Blueprint作成画面で `OPENAI_API_KEY` を入力します。キーはGitHubへコミットしません。
+3. Blueprintを適用し、デプロイ完了後に表示される `onrender.com` URLを共有します。
+
+`render.yaml` はSingaporeリージョンのFree Web Service、`system_YANS`ブランチの自動デプロイ、`/api/health`のヘルスチェックを設定します。本番ビルドでは `requirements-render.txt` を使い、現在の実行経路で不要なMem0依存をインストールしません。
+
+公開URLでは1 IPにつき60秒間に12メッセージまでに制限しています。値はRenderの `CHAT_RATE_LIMIT` と `CHAT_RATE_WINDOW_SECONDS` で変更できます。公開専用のOpenAI Project API keyを作り、Project Limitsで利用額とモデル別レート制限も設定してください。
+
+Free Web Serviceは無通信時にスリープするため、最初のアクセスに時間がかかる場合があります。またSession Stateはプロセス内だけにあるため、スリープ、再起動、再デプロイで消えます。
+
 ## 主なファイル
 
 - `app/gyaru_principles.py`: SelectorとGeneratorが共有する差し替え可能な価値観

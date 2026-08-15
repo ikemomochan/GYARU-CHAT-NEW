@@ -54,6 +54,8 @@ class Settings:
     rag_top_k: int
     style_top_k: int
     principle_rag_top_k: int
+    chat_rate_limit: int
+    chat_rate_window_seconds: int
     chat_history_limit: int
     summary_trigger_messages: int
     max_output_tokens: int
@@ -110,6 +112,10 @@ def get_settings() -> Settings:
         rag_top_k=max(5, _positive_int("RAG_TOP_K", 5)),
         style_top_k=_positive_int("STYLE_TOP_K", 5),
         principle_rag_top_k=_positive_int("PRINCIPLE_RAG_TOP_K", 5),
+        chat_rate_limit=_positive_int("CHAT_RATE_LIMIT", 12),
+        chat_rate_window_seconds=_positive_int(
+            "CHAT_RATE_WINDOW_SECONDS", 60
+        ),
         chat_history_limit=_positive_int("CHAT_HISTORY_LIMIT", 12),
         summary_trigger_messages=_positive_int("SUMMARY_TRIGGER_MESSAGES", 12),
         max_output_tokens=_positive_int("MAX_OUTPUT_TOKENS", 1000),

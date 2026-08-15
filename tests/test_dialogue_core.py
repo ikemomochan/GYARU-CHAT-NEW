@@ -140,8 +140,8 @@ def test_response_prompt_is_selected_per_strategy() -> None:
     assert "今回はLISTEN" not in advice_prompt
     assert "今回はSYMPATHY" in sympathy_prompt
     assert "今回はLISTEN" not in sympathy_prompt
-    assert "任意に参考にしてよい" in advice_prompt
-    assert "任意に参考にしてよい" in sympathy_prompt
+    assert "役立つ部分を参考にして" in advice_prompt
+    assert "役立つ部分を参考にして" in sympathy_prompt
 
 
 def test_tone_corrector_uses_few_shots_without_selecting_strategy() -> None:
