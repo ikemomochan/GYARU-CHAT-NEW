@@ -3,18 +3,35 @@ const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
 const messagesElement = document.querySelector("#messages");
 const notice = document.querySelector("#notice");
-const modelLabel = document.querySelector("#model-label");
+const statusLabel = document.querySelector("#status-label");
 const clearButton = document.querySelector("#clear-button");
 
 const USER_KEY = "mem0-chat-user-id";
 const CONVERSATION_KEY = "mem0-chat-conversation-id";
 const HISTORY_KEY = "mem0-chat-history";
 const RUNTIME_KEY = "mem0-chat-runtime-id";
+const INITIAL_GREETING = "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー";
+
+function createClientId() {
+  const webCrypto = globalThis.crypto;
+  if (typeof webCrypto?.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+  if (typeof webCrypto?.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    webCrypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+  }
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
 
 const getOrCreateId = (key) => {
   let value = localStorage.getItem(key);
   if (!value) {
-    value = crypto.randomUUID();
+    value = createClientId();
     localStorage.setItem(key, value);
   }
   return value;
@@ -89,12 +106,12 @@ async function loadConfig() {
     if (!response.ok) throw new Error("config request failed");
     const config = await response.json();
     syncRuntime(config);
-    modelLabel.textContent = `${config.chat_model} · Mem0 + RAG`;
+    statusLabel.textContent = "オンライン";
     if (!config.api_key_configured) {
       showNotice(".env の OPENAI_API_KEY を設定してからメッセージを送ってください。 ");
     }
   } catch {
-    modelLabel.textContent = "サーバーに接続できません";
+    statusLabel.textContent = "サーバーに接続できません";
     showNotice("バックエンドとの接続を確認してください。");
   }
 }
@@ -107,13 +124,10 @@ function syncRuntime(config) {
   ) {
     history = [];
     saveHistory();
-    conversationId = crypto.randomUUID();
+    conversationId = createClientId();
     localStorage.setItem(CONVERSATION_KEY, conversationId);
     messagesElement.innerHTML = "";
-    addMessage(
-      "assistant",
-      "サーバーを再起動したので、前回の会話と長期記憶をリセットしたよ。今日はどうした？",
-    );
+    addMessage("assistant", INITIAL_GREETING);
   }
   localStorage.setItem(RUNTIME_KEY, config.runtime_id);
 }
@@ -129,13 +143,26 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
-clearButton.addEventListener("click", () => {
+clearButton.addEventListener("click", async () => {
+  const previousConversationId = conversationId;
+  try {
+    await fetch("/api/session/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: userId,
+        conversation_id: previousConversationId,
+      }),
+    });
+  } catch {
+    // A new conversation ID still isolates the next session locally.
+  }
   history = [];
   saveHistory();
-  conversationId = crypto.randomUUID();
+  conversationId = createClientId();
   localStorage.setItem(CONVERSATION_KEY, conversationId);
   messagesElement.innerHTML = "";
-  addMessage("assistant", "表示履歴をクリアしたよ。長期記憶はそのまま残ってるよ。");
+  addMessage("assistant", INITIAL_GREETING);
   showNotice("");
 });
 
@@ -169,8 +196,7 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok) {
       throw new Error(data.detail || "応答に失敗しました。");
     }
-    const meta = `記憶 ${data.recalled_memories}件 · 例 ${data.retrieved_examples}件`;
-    addMessage("assistant", data.reply, meta);
+    addMessage("assistant", data.reply);
     history.push({ role: "assistant", content: data.reply });
     saveHistory();
     if (data.warnings?.length) showNotice(data.warnings.join(" "));

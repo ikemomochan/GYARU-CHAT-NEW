@@ -39,6 +39,10 @@ def _boolean(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
+    llm_provider: str
+    strategy_model: str
+    response_model: str
+    tone_model: str
     openai_api_key: str
     chat_model: str
     style_model: str
@@ -48,6 +52,8 @@ class Settings:
     reasoning_effort: str
     memory_top_k: int
     rag_top_k: int
+    style_top_k: int
+    principle_rag_top_k: int
     chat_history_limit: int
     summary_trigger_messages: int
     max_output_tokens: int
@@ -58,15 +64,26 @@ class Settings:
     conversation_db_path: Path
     rag_examples_path: Path
     rag_cache_path: Path
+    style_examples_path: Path
+    style_cache_path: Path
+    principle_rag_path: Path
+    principle_rag_cache_path: Path
 
     @property
     def api_key_configured(self) -> bool:
+        if self.llm_provider != "openai":
+            return True
         key = self.openai_api_key.strip()
         return bool(key) and key != "sk-your-key-here"
 
 
 @lru_cache
 def get_settings() -> Settings:
+    llm_provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    if not llm_provider:
+        raise ValueError("LLM_PROVIDER must not be blank")
+
+    legacy_chat_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-5.6-luna")
     reasoning_effort = os.getenv("OPENAI_REASONING_EFFORT", "low").lower()
     allowed_efforts = {"none", "low", "medium", "high", "xhigh", "max"}
     if reasoning_effort not in allowed_efforts:
@@ -76,8 +93,12 @@ def get_settings() -> Settings:
         )
 
     return Settings(
+        llm_provider=llm_provider,
+        strategy_model=os.getenv("STRATEGY_MODEL", legacy_chat_model),
+        response_model=os.getenv("RESPONSE_MODEL", legacy_chat_model),
+        tone_model=os.getenv("TONE_MODEL", legacy_chat_model),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        chat_model=os.getenv("OPENAI_CHAT_MODEL", "gpt-5.6-luna"),
+        chat_model=legacy_chat_model,
         style_model=os.getenv("OPENAI_STYLE_MODEL", "gpt-5.6-luna"),
         memory_model=os.getenv("OPENAI_MEMORY_MODEL", "gpt-5.6-luna"),
         summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.6-luna"),
@@ -87,6 +108,8 @@ def get_settings() -> Settings:
         reasoning_effort=reasoning_effort,
         memory_top_k=_positive_int("MEMORY_TOP_K", 5),
         rag_top_k=max(5, _positive_int("RAG_TOP_K", 5)),
+        style_top_k=_positive_int("STYLE_TOP_K", 5),
+        principle_rag_top_k=_positive_int("PRINCIPLE_RAG_TOP_K", 5),
         chat_history_limit=_positive_int("CHAT_HISTORY_LIMIT", 12),
         summary_trigger_messages=_positive_int("SUMMARY_TRIGGER_MESSAGES", 12),
         max_output_tokens=_positive_int("MAX_OUTPUT_TOKENS", 1000),
@@ -108,5 +131,18 @@ def get_settings() -> Settings:
         ),
         rag_cache_path=_path_from_env(
             "RAG_CACHE_PATH", ".data/few_shot_embeddings.json"
+        ),
+        style_examples_path=_path_from_env(
+            "STYLE_EXAMPLES_PATH", "data/gyaru_rag_documents.jsonl"
+        ),
+        style_cache_path=_path_from_env(
+            "STYLE_CACHE_PATH", ".data/style_embeddings.json"
+        ),
+        principle_rag_path=_path_from_env(
+            "PRINCIPLE_RAG_PATH", "data/gyaru_principles_rag.jsonl"
+        ),
+        principle_rag_cache_path=_path_from_env(
+            "PRINCIPLE_RAG_CACHE_PATH",
+            ".data/gyaru_principle_embeddings.json",
         ),
     )

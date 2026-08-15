@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import replace
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException
@@ -12,12 +11,18 @@ from fastapi.staticfiles import StaticFiles
 
 from app.chat import ChatService
 from app.config import PROJECT_ROOT, get_settings
-from app.schemas import ChatRequest, ChatResponse, PublicConfig
+from app.schemas import (
+    ChatRequest,
+    ChatResponse,
+    PublicConfig,
+    SessionResetRequest,
+)
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
+FIG_DIR = PROJECT_ROOT / "fig"
 RUNTIME_ID = uuid.uuid4().hex
 
 @lru_cache
@@ -27,26 +32,15 @@ def get_chat_service() -> ChatService:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if settings.reset_state_on_start:
-        if settings.api_key_configured:
-            get_chat_service().reset_state()
-        else:
-            reset_settings = replace(
-                settings, openai_api_key="reset-only-placeholder"
-            )
-            reset_service = ChatService(reset_settings)
-            try:
-                reset_service.reset_state()
-            finally:
-                reset_service.close()
     yield
     if get_chat_service.cache_info().currsize:
         get_chat_service().close()
         get_chat_service.cache_clear()
 
 
-app = FastAPI(title="Mem0 + RAG Chat", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Ririmero Dialogue Chat", version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/fig", StaticFiles(directory=FIG_DIR), name="fig")
 
 
 @app.get("/", include_in_schema=False)
@@ -64,6 +58,11 @@ async def public_config() -> PublicConfig:
     return PublicConfig(
         runtime_id=RUNTIME_ID,
         reset_state_on_start=settings.reset_state_on_start,
+        llm_provider=settings.llm_provider,
+        strategy_model=settings.strategy_model,
+        response_model=settings.response_model,
+        tone_model=settings.tone_model,
+        rag_enabled=True,
         chat_model=settings.chat_model,
         style_model=settings.style_model,
         memory_model=settings.memory_model,
@@ -73,6 +72,16 @@ async def public_config() -> PublicConfig:
         memory_top_k=settings.memory_top_k,
         api_key_configured=settings.api_key_configured,
     )
+
+
+@app.post("/api/session/reset")
+async def reset_session(request: SessionResetRequest) -> dict[str, str]:
+    if get_chat_service.cache_info().currsize:
+        get_chat_service().reset_session(
+            request.user_id,
+            request.conversation_id,
+        )
+    return {"status": "ok"}
 
 
 @app.post("/api/chat", response_model=ChatResponse)

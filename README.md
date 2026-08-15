@@ -1,19 +1,69 @@
-# Mem0 + RAG Chat
+# りりめろ Dialogue Chat
 
-Mem0による長期記憶と、ローカルfew-shot例のRAG検索を組み合わせた、最小構成のDM風チャットです。最終応答にはOpenAI Responses APIを使い、初期モデルは `gpt-5.6-luna` です。
+「りりめろ」は、ユーザーの代わりにタスクを完成させるのではなく、話を聞き、必要なことだけを尋ね、状況が十分に分かったときにギャルの価値観から率直な視点を返す対話AIです。
 
-## 処理フロー
+## 対話フロー
 
-1. ユーザーの発言でMem0の長期記憶を検索
-2. 同じ発言でギャル口調の言い換え一覧をEmbedding検索し、類似度上位5件を取得
-3. `CHAT_SYSTEM_PROMPT` に記憶・会話要約・直近履歴を渡し、内容重視の下書きを生成
-4. 出力チェック用プロンプトに下書きとfew-shot上位5件を渡し、意味を変えずギャル口調へ整形
-5. 整形後の回答をユーザーへ返す
-6. 会話から長期記憶候補をStructured Outputsで抽出
-7. 既存記憶と照合し、ADD / UPDATE / DELETE / NONEを判定してMem0へ反映
-8. 会話をSQLiteへ保存し、一定件数ごとにローリング要約を更新
+```text
+Conversation History
+        ↓
+Session State
+        ↓
+Strategy Selector
+        ↓
+LISTEN / ADVICE / SYMPATHY
+        ↓
+Gyaru Principles
+        ↓
+Principle RAG（ADVICE / SYMPATHYのみ、任意参考）
+        ↓
+Response Generator
+        ↓
+Few-shot Tone Corrector
+```
 
-Mem0検索とfew-shot検索は並列実行します。few-shot例のEmbeddingは `.data/few_shot_embeddings.json` にキャッシュされ、例またはEmbeddingモデルが変わった場合だけ再作成されます。
+Strategy Selectorは毎ターン構造化出力で戦略を一つ選びます。Response Generatorは選ばれた戦略に従って返答内容を生成し、最後にTone CorrectorがFew-shot例を参照して口調だけを整えます。Selectorの判断理由はSession Stateとサーバーログにだけ残り、ユーザーには表示されません。
+
+### 戦略
+
+- `LISTEN`: 軽く共感し、状況を理解するための広い質問を一つだけ行う。最大5回連続
+- `ADVICE`: 状況を十分理解したら、率直な助言や行動の提案を一つ返す
+- `SYMPATHY`: 状況を十分理解したら、共感しつつ前向きな別視点を一つ返す
+
+明確な加害行為はどの戦略でも正当化しません。生命・身体の危険など緊急性が高い場合は、安全確保と警察・救急・医療機関等への相談を通常の会話より優先します。
+
+`ANSWER` や `TASK` はありません。成果物の代行を標準動作にせず、Listen / Think with the user / Give a perspectiveに役割を限定しています。
+
+## Session State
+
+状態はサーバープロセス内のメモリに、ユーザーIDと会話IDの組み合わせごとに保持されます。
+
+```json
+{
+  "topic": "",
+  "known_context": "",
+  "user_need": "",
+  "strategy_history": [],
+  "perspective_ready": false
+}
+```
+
+ブラウザが保持する会話履歴も毎ターンSelectorへ渡します。Session Stateは長期記憶ではなく、サーバー再起動またはUIの「履歴を消す」で破棄されます。
+
+## Mem0とRAG
+
+現在の返信経路ではMem0とSQLiteローリング要約を使用しません。旧実装と単体テストは、既存機能を不用意に削除しないためリポジトリ内に残しています。
+
+RAGは用途別に分かれています。
+
+- 口調補正: 全戦略で `data/gyaru_rag_documents.jsonl` のFew-shot例を検索し、内容ではなく話し方だけを参照
+- ギャル原則: `ADVICE` と `SYMPATHY` のときだけ `data/gyaru_principles_rag.jsonl` を検索し、役立つ場合だけ任意参考としてGeneratorへ渡す
+
+原則RAGファイルは空でも正常に動作します。追加時は1行1JSONで、`{"id":"...", "text":"..."}`、または `title`、`principle`、`caution`、`quotes` を持つ形式を使います。絶対に守る原則はRAGだけに置かず、Response System Promptと `GYARU_PRINCIPLES` に保持しています。
+
+## LLMプロバイダー
+
+SelectorとGeneratorは `LanguageModel` Protocolだけに依存します。現在はOpenAIアダプターを実装しています。将来Qwen、Gemma、Swallowなどを使う場合は、同じProtocolを実装するアダプターを `app/providers/` に追加します。fine-tuningは前提としていません。
 
 ## セットアップ
 
@@ -25,12 +75,14 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-`.env` の `OPENAI_API_KEY` を設定します。
+`.env` を設定します。
 
 ```dotenv
 OPENAI_API_KEY=sk-...
-OPENAI_CHAT_MODEL=gpt-5.6-luna
-OPENAI_MEMORY_MODEL=gpt-5.6-luna
+LLM_PROVIDER=openai
+STRATEGY_MODEL=gpt-5.6-luna
+RESPONSE_MODEL=gpt-5.6-luna
+TONE_MODEL=gpt-5.6-luna
 ```
 
 起動:
@@ -41,46 +93,58 @@ uvicorn app.main:app --reload
 
 ブラウザで <http://127.0.0.1:8000> を開きます。
 
-## 再起動時のリセット
+### スマートフォンから開く
 
-`RESET_STATE_ON_START=true` により、サーバープロセスを起動するたびに以下を削除します。
+PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行します。
 
-- Mem0の長期記憶と変更履歴
-- SQLiteに保存した会話メッセージとローリング要約
-- ブラウザに残っている前回プロセスの表示履歴
+```powershell
+.\scripts\setup_mobile_access.ps1
+.\scripts\start_mobile.ps1
+```
 
-ギャル口調のJSONL原本とfew-shot Embeddingキャッシュは削除しません。`uvicorn --reload` はソース変更のたびにプロセスを再起動するため、そのたびに会話状態もリセットされます。
+初回だけ `setup_mobile_access.ps1` を実行します。Windowsの管理者確認後、信頼できるWi-Fiであることを確認して`y`を入力すると、TCP 8000をプライベートネットワークのローカルサブネットだけに許可します。
+
+続いて `start_mobile.ps1` を実行し、表示される `スマホ: http://192.168.x.x:8000` をスマートフォンのブラウザで開きます。IPアドレスはWi-Fiへ接続し直すと変わることがあります。
+
+接続できない場合は、Windowsのネットワーク設定で信頼できる自宅Wi-Fiのプロファイルが「プライベート」になっているか確認し、Windows Defenderファイアウォールの確認画面ではプライベートネットワーク上のPythonを許可します。公共Wi-Fiでは公開しないでください。
 
 ## 主なファイル
 
-- `app/prompts.py`: 下書き生成、口調チェック、記憶抽出、記憶照合、会話要約の全プロンプト
-- `app/memory.py`: Mem0 OSS + ローカルQdrantとADD / UPDATE / DELETE処理
-- `app/conversation.py`: 会話履歴とローリング要約のSQLite永続化
-- `app/rag.py`: few-shot例のEmbedding、キャッシュ、コサイン類似度検索
-- `app/chat.py`: 検索と最終応答のオーケストレーション
-- `data/gyaru_rag_documents.jsonl`: 標準表現からギャル口調への言い換え一覧
-- `app/static/`: DM風UI
-
-Mem0 V3の標準抽出はADD-onlyですが、このアプリでは旧方式に近い整合性管理をアプリ側で実装しています。抽出・照合はOpenAI Responses APIで行い、確定した操作だけをMem0の `add(infer=False)` / `update()` / `delete()` へ渡します。これにより、アプリが使うプロンプトはすべて `app/prompts.py` で管理できます。
+- `app/gyaru_principles.py`: SelectorとGeneratorが共有する差し替え可能な価値観
+- `app/dialogue_prompts/strategy_prompt.py`: 戦略選択用プロンプトと入力構築
+- `app/dialogue_prompts/response_prompt.py`: 短い応答System Promptと入力構築
+- `app/core/session_state.py`: Session State、構造化戦略、プロセス内ストア
+- `app/core/strategy_selector.py`: LISTEN / ADVICE / SYMPATHYの選択と連続LISTEN上限
+- `app/core/response_generator.py`: 選択済み戦略に従う応答生成
+- `app/core/tone_corrector.py`: Few-shot例を使い、内容を変えずに口調を補正
+- `app/core/llm.py`: プロバイダー非依存のLLM Protocol
+- `app/core/retrieval.py`: 原則RAGとFew-shot検索のプロバイダー非依存インターフェース
+- `app/providers/openai_provider.py`: OpenAI Responses APIアダプター
+- `app/providers/openai_retrieval.py`: OpenAI Embeddingsを使う2種類のRetriever
+- `app/chat.py`: 新しい対話フローのオーケストレーション
+- `app/rag.py`: 既存Few-shotの読み込み・Embedding検索（アダプター経由で口調補正に再利用）
+- `app/memory.py`: 現在の返信経路では使わない旧Mem0実装
+- `app/conversation.py`: 現在の返信経路では使わない旧要約実装
+- `app/static/`: 既存DM風UI
 
 ## 設定
 
-すべて `.env` で変更できます。
-
 | 変数 | 既定値 | 用途 |
 | --- | --- | --- |
-| `OPENAI_CHAT_MODEL` | `gpt-5.6-luna` | 内容重視の下書き生成モデル |
-| `OPENAI_STYLE_MODEL` | `gpt-5.6-luna` | few-shot照合・口調整形モデル |
-| `OPENAI_MEMORY_MODEL` | `gpt-5.6-luna` | Mem0の記憶抽出モデル |
-| `OPENAI_SUMMARY_MODEL` | `gpt-5.6-luna` | ローリング会話要約モデル |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Mem0とRAGのEmbedding |
-| `OPENAI_REASONING_EFFORT` | `low` | 最終応答のreasoning effort |
-| `RAG_TOP_K` | `5` | 毎回取得するギャル口調の言い換え例数 |
-| `MEMORY_TOP_K` | `5` | 取得する長期記憶件数 |
-| `CHAT_HISTORY_LIMIT` | `12` | 最終応答へ渡す直近メッセージ数 |
-| `SUMMARY_TRIGGER_MESSAGES` | `12` | 会話要約を更新する未要約メッセージ数 |
-| `MAX_OUTPUT_TOKENS` | `1000` | 応答の最大出力トークン |
-| `RESET_STATE_ON_START` | `true` | 起動時に長期記憶・会話履歴・要約を削除 |
+| `LLM_PROVIDER` | `openai` | LLMアダプター名 |
+| `STRATEGY_MODEL` | `OPENAI_CHAT_MODEL`の値 | Strategy Selectorのモデル |
+| `RESPONSE_MODEL` | `OPENAI_CHAT_MODEL`の値 | Response Generatorのモデル |
+| `TONE_MODEL` | `OPENAI_CHAT_MODEL`の値 | Tone Correctorのモデル |
+| `STYLE_TOP_K` | `5` | 口調補正で参照するFew-shot例数 |
+| `STYLE_EXAMPLES_PATH` | `data/gyaru_rag_documents.jsonl` | 口調Few-shotデータ |
+| `PRINCIPLE_RAG_TOP_K` | `5` | ADVICE/SYMPATHYで参照する原則資料数 |
+| `PRINCIPLE_RAG_PATH` | `data/gyaru_principles_rag.jsonl` | ギャル原則RAG資料 |
+| `OPENAI_API_KEY` | なし | OpenAIアダプターのAPIキー |
+| `OPENAI_REASONING_EFFORT` | `low` | OpenAIモデルのreasoning effort |
+| `MAX_OUTPUT_TOKENS` | `1000` | 各モデル呼び出しの最大出力トークン |
+| `RESET_STATE_ON_START` | `true` | 再起動時にブラウザ表示履歴を新セッションへ切り替える |
+
+その他のMem0、要約、Embedding、旧RAG設定は互換性のため残っていますが、新しい返信経路では参照しません。
 
 ## テスト
 
@@ -88,4 +152,4 @@ Mem0 V3の標準抽出はADD-onlyですが、このアプリでは旧方式に�
 pytest
 ```
 
-テストではOpenAI APIを呼びません。実APIを使った確認はキー設定後、ブラウザから行ってください。
+テストでは実際のLLM APIを呼びません。

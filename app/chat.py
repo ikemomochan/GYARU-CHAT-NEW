@@ -2,171 +2,200 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 from typing import Any
 
-from openai import OpenAI
-
 from app.config import Settings
-from app.conversation import ConversationService
-from app.memory import MemoryService
-from app.prompts import (
-    OUTPUT_CHECK_PROMPT,
-    build_chat_system_prompt,
-    build_output_check_input,
+from app.core.llm import LanguageModel
+from app.core.retrieval import DialogueContextRetriever, FewShotExampleRetriever
+from app.core.response_generator import ResponseGenerator
+from app.core.session_state import (
+    DialogueStrategy,
+    InMemorySessionStore,
+    SessionState,
 )
-from app.rag import FewShotRetriever
+from app.core.strategy_selector import StrategySelector
+from app.core.tone_corrector import ToneCorrector
+from app.gyaru_principles import GYARU_PRINCIPLES
+from app.providers.factory import (
+    build_few_shot_retriever,
+    build_language_model,
+    build_principle_retriever,
+)
 from app.schemas import ChatRequest, ChatResponse
 
 
+logger = logging.getLogger(__name__)
+
+
 class ChatService:
+    """Orchestrates strategy, optional principle RAG, response, and tone."""
+
     def __init__(
         self,
         settings: Settings,
-        client: OpenAI | None = None,
-        memory_service: MemoryService | None = None,
-        retriever: FewShotRetriever | None = None,
-        conversation_service: ConversationService | None = None,
+        llm: LanguageModel | None = None,
+        session_store: InMemorySessionStore | None = None,
+        strategy_selector: StrategySelector | None = None,
+        response_generator: ResponseGenerator | None = None,
+        tone_corrector: ToneCorrector | None = None,
+        principle_retriever: DialogueContextRetriever | None = None,
+        few_shot_retriever: FewShotExampleRetriever | None = None,
     ) -> None:
         self.settings = settings
-        self.client = client or OpenAI(api_key=settings.openai_api_key)
-        self.memory = memory_service or MemoryService(settings, self.client)
-        self.retriever = retriever or FewShotRetriever(
-            client=self.client,
-            model=settings.embedding_model,
-            examples_path=settings.rag_examples_path,
-            cache_path=settings.rag_cache_path,
+        if (
+            strategy_selector is None
+            or response_generator is None
+            or tone_corrector is None
+        ):
+            llm = llm or build_language_model(settings)
+        self.strategy_selector = strategy_selector or StrategySelector(
+            llm=llm,
+            model=settings.strategy_model,
+            max_output_tokens=settings.max_output_tokens,
         )
-        self.conversation = conversation_service or ConversationService(
-            settings, self.client
+        self.response_generator = response_generator or ResponseGenerator(
+            llm=llm,
+            model=settings.response_model,
+            max_output_tokens=settings.max_output_tokens,
+        )
+        self.tone_corrector = tone_corrector or ToneCorrector(
+            llm=llm,
+            model=settings.tone_model,
+            max_output_tokens=settings.max_output_tokens,
+        )
+        self.sessions = session_store or InMemorySessionStore()
+        self.principle_retriever = (
+            principle_retriever or build_principle_retriever(settings)
+        )
+        self.few_shot_retriever = (
+            few_shot_retriever or build_few_shot_retriever(settings)
         )
 
     async def reply(self, request: ChatRequest) -> ChatResponse:
-        memory_result, example_result, summary_result = await asyncio.gather(
-            asyncio.to_thread(self.memory.search, request.message, request.user_id),
-            asyncio.to_thread(
-                self.retriever.retrieve, request.message, self.settings.rag_top_k
-            ),
-            asyncio.to_thread(
-                self.conversation.get_summary,
-                request.user_id,
-                request.conversation_id,
-            ),
-            return_exceptions=True,
+        history = [message.model_dump() for message in request.history]
+        state = self.sessions.get(request.user_id, request.conversation_id)
+        safety_identifier = self._safety_identifier(request.user_id)
+
+        selection = await asyncio.to_thread(
+            self.strategy_selector.select,
+            history=history,
+            latest_message=request.message,
+            state=state,
+            principles=GYARU_PRINCIPLES,
+            safety_identifier=safety_identifier,
         )
+        response_state = state.with_selection(selection)
 
         warnings: list[str] = []
-        memories: list[str]
-        examples: list[dict[str, Any]]
-        conversation_summary: str
+        principle_context: list[str] = []
+        if selection.strategy in {
+            DialogueStrategy.ADVICE,
+            DialogueStrategy.SYMPATHY,
+        }:
+            query = self._retrieval_query(request.message, response_state)
+            try:
+                principle_context = await asyncio.to_thread(
+                    self.principle_retriever.retrieve_context,
+                    query,
+                )
+            except Exception:
+                logger.exception("Optional gyaru-principle RAG failed")
+                warnings.append(
+                    "ギャル原則の補足資料を取得できなかったため、"
+                    "今回はその資料なしで応答しました。"
+                )
 
-        if isinstance(memory_result, Exception):
-            memories = []
-            warnings.append(
-                "長期記憶の検索に失敗したため、今回は記憶なしで応答しました。"
-            )
-        else:
-            memories = memory_result
-
-        if isinstance(example_result, Exception):
-            examples = []
-            warnings.append(
-                "few-shot例の検索に失敗したため、今回は例なしで応答しました。"
-            )
-        else:
-            examples = example_result
-
-        if isinstance(summary_result, Exception):
-            conversation_summary = ""
-            warnings.append(
-                "会話要約を読み込めなかったため、直近履歴だけで応答しました。"
-            )
-        else:
-            conversation_summary = summary_result
-
-        history = request.history[-self.settings.chat_history_limit :]
-        input_messages = [message.model_dump() for message in history]
-        input_messages.append({"role": "user", "content": request.message})
-        system_prompt = build_chat_system_prompt(
-            memories, conversation_summary=conversation_summary
+        draft = await asyncio.to_thread(
+            self.response_generator.generate,
+            history=history,
+            latest_message=request.message,
+            state=response_state,
+            selection=selection,
+            principles=GYARU_PRINCIPLES,
+            retrieved_context=principle_context,
+            safety_identifier=safety_identifier,
         )
 
-        draft_response = await asyncio.to_thread(
-            self.client.responses.create,
-            model=self.settings.chat_model,
-            instructions=system_prompt,
-            input=input_messages,
-            reasoning={"effort": self.settings.reasoning_effort},
-            max_output_tokens=self.settings.max_output_tokens,
-            safety_identifier=self._safety_identifier(request.user_id),
-        )
-        draft = draft_response.output_text.strip()
-        if not draft:
-            raise RuntimeError("OpenAI returned an empty response")
+        style_examples: list[dict[str, Any]] = []
+        try:
+            style_examples = await asyncio.to_thread(
+                self.few_shot_retriever.retrieve_examples,
+                f"{request.message}\n{draft}",
+                self.settings.style_top_k,
+            )
+        except Exception:
+            logger.exception("Few-shot style retrieval failed")
+            warnings.append(
+                "口調の参照例を取得できなかったため、"
+                "今回は参照例なしで口調を整えました。"
+            )
 
         try:
-            style_response = await asyncio.to_thread(
-                self.client.responses.create,
-                model=self.settings.style_model,
-                instructions=OUTPUT_CHECK_PROMPT,
-                input=[
-                    {
-                        "role": "user",
-                        "content": build_output_check_input(draft, examples),
-                    }
-                ],
-                reasoning={"effort": self.settings.reasoning_effort},
-                max_output_tokens=self.settings.max_output_tokens,
-                safety_identifier=self._safety_identifier(request.user_id),
+            reply = await asyncio.to_thread(
+                self.tone_corrector.correct,
+                history=history,
+                latest_message=request.message,
+                draft=draft,
+                strategy=selection.strategy,
+                safety_level=selection.safety_level,
+                examples=style_examples,
+                safety_identifier=safety_identifier,
             )
-            reply = style_response.output_text.strip()
-            if not reply:
-                raise RuntimeError("style check returned an empty response")
         except Exception:
+            logger.exception("Tone correction failed")
+            warnings.append(
+                "口調補正に失敗したため、補正前の応答を表示しています。"
+            )
             reply = draft
-            warnings.append(
-                "口調の最終チェックに失敗したため、内容生成時の回答をそのまま返しました。"
-            )
-
-        memory_write, summary_write = await asyncio.gather(
-            asyncio.to_thread(
-                self.memory.reconcile_conversation,
-                request.message,
-                reply,
-                request.user_id,
-                request.conversation_id,
-            ),
-            asyncio.to_thread(
-                self.conversation.record_and_maybe_summarize,
-                request.user_id,
-                request.conversation_id,
-                request.message,
-                reply,
-            ),
-            return_exceptions=True,
+        self.sessions.commit(
+            request.user_id,
+            request.conversation_id,
+            selection,
+            reply,
         )
-
-        if isinstance(memory_write, Exception):
-            warnings.append(
-                "応答は完了しましたが、長期記憶の追加・修正処理に失敗しました。"
-            )
-        if isinstance(summary_write, Exception):
-            warnings.append(
-                "応答は完了しましたが、会話要約を更新できませんでした。"
-            )
+        logger.info(
+            "Dialogue strategy: conversation=%s strategy=%s ready=%s reason=%s",
+            request.conversation_id,
+            selection.strategy.value,
+            selection.perspective_ready,
+            selection.reason,
+        )
 
         return ChatResponse(
             reply=reply,
-            recalled_memories=len(memories),
-            retrieved_examples=len(examples),
+            recalled_memories=0,
+            retrieved_examples=len(style_examples),
+            retrieved_principles=len(principle_context),
             warnings=warnings,
         )
 
-    def close(self) -> None:
-        self.memory.close()
+    def get_session_state(
+        self,
+        user_id: str,
+        conversation_id: str,
+    ) -> SessionState:
+        return self.sessions.get(user_id, conversation_id)
+
+    def reset_session(self, user_id: str, conversation_id: str) -> None:
+        self.sessions.reset_session(user_id, conversation_id)
 
     def reset_state(self) -> None:
-        self.conversation.reset()
-        self.memory.reset()
+        self.sessions.reset_all()
+
+    def close(self) -> None:
+        for retriever in (
+            self.principle_retriever,
+            self.few_shot_retriever,
+        ):
+            close_retriever = getattr(retriever, "close", None)
+            if callable(close_retriever):
+                close_retriever()
+
+    @staticmethod
+    def _retrieval_query(message: str, state: SessionState) -> str:
+        parts = [message, state.topic, state.known_context, state.user_need]
+        return "\n".join(part.strip() for part in parts if part.strip())
 
     @staticmethod
     def _safety_identifier(user_id: str) -> str:

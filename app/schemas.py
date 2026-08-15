@@ -33,16 +33,27 @@ class ChatRequest(BaseModel):
         return value
 
 
+class SessionResetRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    conversation_id: str = Field(min_length=1, max_length=128)
+
+
 class ChatResponse(BaseModel):
     reply: str
     recalled_memories: int
     retrieved_examples: int
+    retrieved_principles: int = 0
     warnings: list[str] = Field(default_factory=list)
 
 
 class PublicConfig(BaseModel):
     runtime_id: str
     reset_state_on_start: bool
+    llm_provider: str
+    strategy_model: str
+    response_model: str
+    tone_model: str
+    rag_enabled: bool
     chat_model: str
     style_model: str
     memory_model: str

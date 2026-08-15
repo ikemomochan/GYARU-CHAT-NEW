@@ -1,1 +1,1 @@
-"""Mem0 + RAG chat application."""
+"""Strategy-driven dialogue application for the gyaru AI Ririmero."""
