@@ -65,8 +65,8 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert index.status_code == 200
     assert "りりめろ" in index.text
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in index.text
-    assert "style.css?v=mobile-viewport-20260816" in index.text
-    assert "app.js?v=mobile-viewport-20260816" in index.text
+    assert "style.css?v=trial-output-visible-20260816" in index.text
+    assert "app.js?v=trial-output-visible-20260816" in index.text
     assert "interactive-widget=resizes-content" in index.text
     assert config.status_code == 200
     assert config.json()["llm_provider"] == "openai"
@@ -97,6 +97,8 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert 'fetch("/api/trial/status")' in script
     assert 'fetch("/api/debug/unlock"' in script
     assert 'TRIAL_USED_KEY = "ririmero-trial-used"' in script
+    assert 'form.classList.toggle("hidden", trialLocked)' in script
+    assert "requestAnimationFrame(scrollMessagesToBottom)" in script
     assert "サーバーを再起動したので" not in script
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in script
     assert 'url("/fig/UI-background.png")' in styles
@@ -106,6 +108,7 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert "backdrop-filter" not in styles
     assert "height: var(--app-height, 100dvh)" in styles
     assert "position: fixed" in styles
+    assert "grid-row: 4" in styles
 
 
 def test_ui_background_image_is_served() -> None:

@@ -143,51 +143,45 @@ textarea { font: inherit; }
 .trial-lock {
   z-index: 10;
   grid-column: 1;
-  grid-row: 2 / -1;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(232, 247, 244, 0.94);
+  grid-row: 4;
+  max-height: min(48vh, 320px);
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  overflow-y: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(232, 247, 244, 0.96);
+  box-shadow: 0 -5px 20px rgba(65, 54, 75, 0.1);
 }
 
 .trial-lock.hidden { display: none; }
 
 .trial-card {
-  width: min(100%, 360px);
-  padding: 26px 22px;
+  width: 100%;
+  padding: 14px 16px;
   border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 24px;
-  text-align: center;
+  border-radius: 18px;
+  text-align: left;
   background: #cdfffc;
   box-shadow: 0 14px 40px rgba(61, 52, 72, 0.2);
 }
 
 .trial-icon {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 12px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: #35685f;
-  background: #fff;
-  font-size: 24px;
+  display: none;
 }
 
 .trial-card h2 {
-  margin: 0 0 8px;
-  font-size: 20px;
+  margin: 0 0 5px;
+  font-size: 16px;
 }
 
 .trial-card > p {
   margin: 0;
   color: #4f5e5b;
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .trial-card details {
-  margin-top: 22px;
+  margin-top: 10px;
   color: #52615e;
   font-size: 12px;
 }

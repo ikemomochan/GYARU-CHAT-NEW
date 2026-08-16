@@ -89,6 +89,10 @@ function saveHistory() {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-50)));
 }
 
+function scrollMessagesToBottom() {
+  messagesElement.scrollTop = messagesElement.scrollHeight;
+}
+
 function addMessage(role, content, meta = "") {
   const row = document.createElement("div");
   row.className = `message-row ${role}`;
@@ -105,7 +109,7 @@ function addMessage(role, content, meta = "") {
   }
   row.appendChild(body);
   messagesElement.appendChild(row);
-  messagesElement.scrollTop = messagesElement.scrollHeight;
+  scrollMessagesToBottom();
   return row;
 }
 
@@ -114,7 +118,7 @@ function addTyping() {
   row.className = "message-row assistant typing";
   row.innerHTML = '<div class="bubble"><span></span><span></span><span></span></div>';
   messagesElement.appendChild(row);
-  messagesElement.scrollTop = messagesElement.scrollHeight;
+  scrollMessagesToBottom();
   return row;
 }
 
@@ -175,8 +179,10 @@ function applyTrialStatus(status) {
     : `残り ${trialRemaining} 回`;
   trialLockMessage.textContent = `りりめろと話してくれてありがとー！この端末での${trialLimit}回分を使い切ったよ。`;
   trialLock.classList.toggle("hidden", !trialLocked);
+  form.classList.toggle("hidden", trialLocked);
   updateComposerAvailability();
   updateStatusLabel();
+  if (trialLocked) window.requestAnimationFrame(scrollMessagesToBottom);
 }
 
 function resizeInput() {
