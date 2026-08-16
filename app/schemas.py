@@ -33,32 +33,26 @@ class ChatRequest(BaseModel):
         return value
 
 
-class SessionResetRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=128)
-    conversation_id: str = Field(min_length=1, max_length=128)
-
-
-class DebugUnlockRequest(BaseModel):
-    access_code: str = Field(min_length=1, max_length=256)
-
-
-class TrialStatus(BaseModel):
-    limit: int
-    used: int
-    remaining: int
-    locked: bool
-    debug_unlimited: bool
-
-
 class ChatResponse(BaseModel):
     reply: str
     recalled_memories: int
     retrieved_examples: int
     retrieved_principles: int = 0
     warnings: list[str] = Field(default_factory=list)
-    trial_remaining: int | None = None
-    trial_locked: bool = False
-    debug_unlimited: bool = False
+    experiment_phase: str | None = None
+    experiment_remaining_seconds: int | None = None
+    experiment_complete: bool = False
+    strategy: str | None = Field(default=None, exclude=True)
+    strategy_reason: str | None = Field(default=None, exclude=True)
+    safety_level: str | None = Field(default=None, exclude=True)
+
+
+class ExperimentStatusResponse(BaseModel):
+    experiment_id: str
+    phase: Literal["WAITING", "SIMPLE", "TRANSITION", "FULL", "COMPLETE"]
+    started: bool
+    remaining_seconds: int
+    phase_seconds: int
 
 
 class PublicConfig(BaseModel):

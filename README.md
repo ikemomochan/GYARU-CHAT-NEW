@@ -110,26 +110,49 @@ PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行
 
 ## Renderへ公開する
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fikemomochan%2FGYARU-CHAT-NEW%2Ftree%2Fsystem_YANS)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fikemomochan%2FGYARU-CHAT-NEW%2Ftree%2FEXP01-system)
 
 1. 上のボタンからRenderへサインインします。
 2. Blueprint作成画面で `OPENAI_API_KEY` を入力します。キーはGitHubへコミットしません。
 3. Blueprintを適用し、デプロイ完了後に表示される `onrender.com` URLを共有します。
 
-`render.yaml` はSingaporeリージョンのFree Web Service、`system_YANS`ブランチの自動デプロイ、`/api/health`のヘルスチェックを設定します。本番ビルドでは `requirements-render.txt` を使い、現在の実行経路で不要なMem0依存をインストールしません。
+`render.yaml` はSingaporeリージョンのFree Web Service、`EXP01-system`ブランチの自動デプロイ、`/api/health`のヘルスチェックを設定します。本番ビルドでは `requirements-render.txt` を使い、現在の実行経路で不要なMem0依存をインストールしません。
 
 公開URLではIPとブラウザ内IDの組み合わせごとに、60秒間に12メッセージまでに制限しています。値はRenderの `CHAT_RATE_LIMIT` と `CHAT_RATE_WINDOW_SECONDS` で変更できます。公開専用のOpenAI Project API keyを作り、Project Limitsで利用額とモデル別レート制限も設定してください。
 
 Free Web Serviceは無通信時にスリープするため、最初のアクセスに時間がかかる場合があります。またSession Stateはプロセス内だけにあるため、スリープ、再起動、再デプロイで消えます。
 
-### 体験版の回数制限
+### 2フェーズ対話実験
 
-- 通常利用は同じブラウザ端末につき10回です。`TRIAL_MESSAGE_LIMIT` で変更できます。
-- 回数はHttpOnly Cookie、サーバー側SQLite、ブラウザ側の使用済み回数で管理するため、履歴を消したりサーバーを再起動したりしても、同じブラウザでは復活しません。
-- 実装者はロック画面の「実装者はこちら」から `DEBUG_ACCESS_CODE` を入力すると、30日間の無制限モードになります。解除コードはフロントエンドへ配信しません。
-- RenderのEnvironment画面で `DEBUG_ACCESS_CODE` をSecretとして設定してください。`TRIAL_SIGNING_SECRET` と `DEBUG_TOKEN_SECRET` はBlueprintが自動生成します。
+- 最初の送信から4分間は、System Promptが「あなたはギャルです」だけの単純条件です。
+- 4分経過後は入力を停止し、参加者が「後半を始める」を押すまで待機します。
+- 後半開始時に画面履歴とモデルへ渡す履歴を削除し、現在のStrategy / RAG / 口調補正を使う条件へ切り替えます。
+- 後半も4分経過すると入力を停止し、実験を終了します。
+- 各フェーズの時間は `EXPERIMENT_PHASE_SECONDS` で変更できます。既定値は240秒です。
 
-名前は本人確認にならず、別名で回数制限を避けられるため、ロック判定には使用していません。Cookieやブラウザのサイトデータを完全に削除した場合、別ブラウザを使った場合まで同一端末と断定することはできません。そこまで厳密に制限する場合は、ログインと外部の永続データベースが必要です。RenderのローカルSQLiteは再デプロイなどで消える可能性があるため、長期運用時は外部DBへ移してください。
+現在は全参加者が単純条件→提案手法条件の固定順です。比較実験として使う場合は、順序効果を避けるため条件順を参加者ごとに入れ替える設計も検討してください。
+
+モデルへ渡す会話履歴と研究ログは分離しています。切替時に会話履歴を削除しても、研究ログには `SIMPLE` / `FULL` の条件名、発話、Strategy、RAG件数などが残ります。IPアドレスや入力された名前は保存しません。
+
+RenderのEnvironment画面で `EXPERIMENT_ADMIN_CODE` をSecretとして設定してください。`EXPERIMENT_DEVICE_SECRET` はBlueprintが自動生成します。ログは次のようにCSVで取得できます。
+
+```powershell
+$headers = @{ "X-Admin-Code" = "設定した管理コード" }
+Invoke-WebRequest `
+  -Uri "https://あなたのサービス.onrender.com/api/experiment/admin/export" `
+  -Headers $headers `
+  -OutFile "ririmero-experiment.csv"
+```
+
+同じ端末で実装テストをやり直す場合は、管理コード付きで `/api/experiment/admin/reset-current` へPOSTします。SQLiteはRenderの再デプロイ等で消える可能性があるため、この構成はパイロット実験用です。本番の研究データ収集前に外部の永続データベースへ移し、参加者同意・保存期間・削除手順を別途定めてください。
+
+```powershell
+$headers = @{ "X-Admin-Code" = "設定した管理コード" }
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "https://あなたのサービス.onrender.com/api/experiment/admin/reset-current" `
+  -Headers $headers
+```
 
 ## 主なファイル
 
@@ -142,6 +165,8 @@ Free Web Serviceは無通信時にスリープするため、最初のアクセ�
 - `app/core/tone_corrector.py`: Few-shot例を使い、内容を変えずに口調を補正
 - `app/core/llm.py`: プロバイダー非依存のLLM Protocol
 - `app/core/retrieval.py`: 原則RAGとFew-shot検索のプロバイダー非依存インターフェース
+- `app/core/experiment.py`: 2フェーズのサーバー時間、条件別履歴、研究ログ、CSV出力
+- `app/simple_chat.py`: 「あなたはギャルです」だけを使う前半条件
 - `app/providers/openai_provider.py`: OpenAI Responses APIアダプター
 - `app/providers/openai_retrieval.py`: OpenAI Embeddingsを使う2種類のRetriever
 - `app/chat.py`: 新しい対話フローのオーケストレーション

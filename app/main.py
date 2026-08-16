@@ -8,32 +8,32 @@ import uuid
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.chat import ChatService
 from app.config import PROJECT_ROOT, get_settings
+from app.core.experiment import (
+    DeviceCookieSigner,
+    ExperimentPhase,
+    ExperimentState,
+    ExperimentStore,
+)
 from app.core.llm import (
     LanguageModelConnectionError,
     LanguageModelRateLimitError,
     LanguageModelTimeoutError,
 )
 from app.core.rate_limit import RateLimitExceeded, SlidingWindowRateLimiter
-from app.core.trial_access import (
-    TrialCookieSigner,
-    TrialLimitExceeded,
-    TrialUsage,
-    TrialUsageStore,
-)
 from app.schemas import (
+    ChatMessage,
     ChatRequest,
     ChatResponse,
-    DebugUnlockRequest,
+    ExperimentStatusResponse,
     PublicConfig,
-    SessionResetRequest,
-    TrialStatus,
 )
+from app.simple_chat import SimpleGyaruChatService
 
 
 logger = logging.getLogger(__name__)
@@ -41,28 +41,16 @@ settings = get_settings()
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 FIG_DIR = PROJECT_ROOT / "fig"
 RUNTIME_ID = uuid.uuid4().hex
-TRIAL_DEVICE_COOKIE = "ririmero_trial_device"
-DEBUG_ACCESS_COOKIE = "ririmero_debug_access"
+EXPERIMENT_DEVICE_COOKIE = "ririmero_experiment_device"
 COOKIE_MAX_AGE_SECONDS = 31_536_000
-signing_secret = settings.trial_signing_secret or hashlib.sha256(
+device_secret = settings.experiment_device_secret or hashlib.sha256(
     (settings.openai_api_key or RUNTIME_ID).encode("utf-8")
 ).hexdigest()
-trial_cookie_signer = TrialCookieSigner(
-    signing_secret,
-    debug_ttl_seconds=settings.debug_token_ttl_seconds,
-)
-debug_cookie_signer = TrialCookieSigner(
-    settings.debug_token_secret or signing_secret,
-    debug_ttl_seconds=settings.debug_token_ttl_seconds,
-)
-trial_usage_store = TrialUsageStore(settings.trial_db_path)
+device_cookie_signer = DeviceCookieSigner(device_secret)
+experiment_store = ExperimentStore(settings.experiment_db_path)
 chat_rate_limiter = SlidingWindowRateLimiter(
     limit=settings.chat_rate_limit,
     window_seconds=settings.chat_rate_window_seconds,
-)
-debug_unlock_rate_limiter = SlidingWindowRateLimiter(
-    limit=5,
-    window_seconds=300,
 )
 
 
@@ -71,15 +59,21 @@ def get_chat_service() -> ChatService:
     return ChatService(settings)
 
 
+@lru_cache
+def get_simple_chat_service() -> SimpleGyaruChatService:
+    return SimpleGyaruChatService(settings)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     yield
     if get_chat_service.cache_info().currsize:
         get_chat_service().close()
         get_chat_service.cache_clear()
+    get_simple_chat_service.cache_clear()
 
 
-app = FastAPI(title="Ririmero Dialogue Chat", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Ririmero Experiment Chat", version="0.3.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/fig", StaticFiles(directory=FIG_DIR), name="fig")
 
@@ -115,59 +109,64 @@ async def public_config() -> PublicConfig:
     )
 
 
-@app.post("/api/session/reset")
-async def reset_session(request: SessionResetRequest) -> dict[str, str]:
-    if get_chat_service.cache_info().currsize:
-        get_chat_service().reset_session(
-            request.user_id,
-            request.conversation_id,
-        )
-    return {"status": "ok"}
-
-
-@app.get("/api/trial/status", response_model=TrialStatus)
-async def trial_status(request: Request, response: Response) -> TrialStatus:
-    response.headers["Cache-Control"] = "no-store"
-    device_id = _get_or_create_device(request, response)
-    return _build_trial_status(request, device_id)
-
-
-@app.post("/api/debug/unlock", response_model=TrialStatus)
-async def debug_unlock(
+@app.get("/api/experiment/status", response_model=ExperimentStatusResponse)
+async def experiment_status(
     request: Request,
     response: Response,
-    unlock_request: DebugUnlockRequest,
-) -> TrialStatus:
-    try:
-        debug_unlock_rate_limiter.acquire(_client_key(request, "debug-unlock"))
-    except RateLimitExceeded as exc:
-        raise HTTPException(
-            status_code=429,
-            detail="試行回数が多すぎます。少し待ってから試してください。",
-            headers={"Retry-After": str(exc.retry_after_seconds)},
-        ) from exc
-    if not settings.debug_access_code:
-        raise HTTPException(
-            status_code=503,
-            detail="実装者用コードがサーバーに設定されていません。",
-        )
-    if not secrets.compare_digest(
-        unlock_request.access_code,
-        settings.debug_access_code,
-    ):
-        raise HTTPException(status_code=401, detail="コードが違います。")
-
+) -> ExperimentStatusResponse:
+    response.headers["Cache-Control"] = "no-store"
     device_id = _get_or_create_device(request, response)
-    debug_token, expires_at = debug_cookie_signer.new_debug_token(device_id)
-    response.set_cookie(
-        DEBUG_ACCESS_COOKIE,
-        debug_token,
-        max_age=max(1, expires_at - int(time.time())),
-        httponly=True,
-        secure=_uses_secure_cookies(request),
-        samesite="strict",
+    return _status_response(
+        experiment_store.status(device_id, settings.experiment_phase_seconds)
     )
-    return _build_trial_status(request, device_id, debug_unlimited=True)
+
+
+@app.post("/api/experiment/advance", response_model=ExperimentStatusResponse)
+async def advance_experiment(
+    request: Request,
+    response: Response,
+) -> ExperimentStatusResponse:
+    device_id = _get_or_create_device(request, response)
+    state = experiment_store.advance_to_full(
+        device_id,
+        settings.experiment_phase_seconds,
+    )
+    if state.phase is not ExperimentPhase.FULL:
+        raise HTTPException(
+            status_code=409,
+            detail="前半の4分が終了してから後半へ進めます。",
+        )
+    return _status_response(state)
+
+
+@app.get("/api/experiment/admin/export")
+async def export_experiment_logs(
+    admin_code: str | None = Header(default=None, alias="X-Admin-Code"),
+) -> Response:
+    _require_admin(admin_code)
+    filename = time.strftime("ririmero-experiment-%Y%m%d-%H%M%S.csv")
+    return Response(
+        content="\ufeff" + experiment_store.export_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post(
+    "/api/experiment/admin/reset-current",
+    response_model=ExperimentStatusResponse,
+)
+async def reset_current_experiment(
+    request: Request,
+    response: Response,
+    admin_code: str | None = Header(default=None, alias="X-Admin-Code"),
+) -> ExperimentStatusResponse:
+    _require_admin(admin_code)
+    device_id = _get_or_create_device(request, response)
+    experiment_store.reset_device(device_id)
+    return _status_response(
+        experiment_store.status(device_id, settings.experiment_phase_seconds)
+    )
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -181,89 +180,136 @@ async def chat(
             status_code=503,
             detail=".env の OPENAI_API_KEY を設定してください。",
         )
+    device_id = _get_or_create_device(request, response)
     try:
-        chat_rate_limiter.acquire(_client_key(request, chat_request.user_id))
+        chat_rate_limiter.acquire(_client_key(request, device_id))
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=429,
             detail="送信が少し速すぎるみたい。少し待ってから試してね。",
             headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
-    device_id = _get_or_create_device(request, response)
-    debug_unlimited = _has_debug_access(request, device_id)
-    usage: TrialUsage | None = None
-    if not debug_unlimited:
-        try:
-            usage = trial_usage_store.consume(
-                device_id,
-                settings.trial_message_limit,
-            )
-        except TrialLimitExceeded as exc:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "code": "trial_limit_reached",
-                    "message": (
-                        f"体験版の{settings.trial_message_limit}回分を"
-                        "使い切りました。"
-                    ),
-                },
-            ) from exc
+
+    state = experiment_store.start(device_id, settings.experiment_phase_seconds)
+    if state.phase is ExperimentPhase.TRANSITION:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "experiment_transition",
+                "message": "前半が終了しました。後半へ進んでください。",
+            },
+        )
+    if state.phase is ExperimentPhase.COMPLETE:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "experiment_complete",
+                "message": "8分間の実験は終了しました。",
+            },
+        )
+
+    phase = state.phase
+    history = experiment_store.history(
+        state.experiment_id,
+        phase,
+        settings.chat_history_limit,
+    )
+    safety_id = hashlib.sha256(device_id.encode("utf-8")).hexdigest()
+    effective_request = chat_request.model_copy(
+        update={
+            "user_id": safety_id,
+            "conversation_id": f"{state.experiment_id}:{phase.value}",
+            "history": [ChatMessage(**message) for message in history],
+        }
+    )
     try:
-        chat_response = await get_chat_service().reply(chat_request)
+        if phase is ExperimentPhase.SIMPLE:
+            chat_response = await get_simple_chat_service().reply(effective_request)
+            condition = "simple_prompt"
+        else:
+            chat_response = await get_chat_service().reply(effective_request)
+            condition = "full_dialogue_architecture"
     except LanguageModelRateLimitError as exc:
-        _refund_trial(device_id, debug_unlimited)
         raise HTTPException(
             status_code=429,
             detail="OpenAI側が混み合っています。30秒ほど待ってから送ってね。",
             headers={"Retry-After": "30"},
         ) from exc
     except LanguageModelTimeoutError as exc:
-        _refund_trial(device_id, debug_unlimited)
         raise HTTPException(
             status_code=504,
             detail="応答に時間がかかりすぎました。もう一度送ってみてね。",
         ) from exc
     except LanguageModelConnectionError as exc:
-        _refund_trial(device_id, debug_unlimited)
         raise HTTPException(
             status_code=503,
             detail="OpenAIに接続できませんでした。少し待ってから試してね。",
         ) from exc
     except Exception as exc:
-        _refund_trial(device_id, debug_unlimited)
         logger.exception("Chat request failed")
         raise HTTPException(
             status_code=502,
             detail="応答の生成に失敗しました。サーバーログを確認してください。",
         ) from exc
+
+    experiment_store.append_turn(
+        state.experiment_id,
+        phase,
+        chat_request.message,
+        chat_response.reply,
+        metadata={
+            "condition": condition,
+            "strategy": chat_response.strategy,
+            "strategy_reason": chat_response.strategy_reason,
+            "safety_level": chat_response.safety_level,
+            "retrieved_examples": chat_response.retrieved_examples,
+            "retrieved_principles": chat_response.retrieved_principles,
+            "warnings": chat_response.warnings,
+        },
+    )
+    current_state = experiment_store.status(
+        device_id,
+        settings.experiment_phase_seconds,
+    )
     return chat_response.model_copy(
         update={
-            "trial_remaining": usage.remaining if usage else None,
-            "trial_locked": usage.locked if usage else False,
-            "debug_unlimited": debug_unlimited,
+            "experiment_phase": current_state.phase.value,
+            "experiment_remaining_seconds": current_state.remaining_seconds,
+            "experiment_complete": (
+                current_state.phase is ExperimentPhase.COMPLETE
+            ),
         }
     )
 
 
-def _client_key(request: Request, user_id: str) -> str:
+def _status_response(state: ExperimentState) -> ExperimentStatusResponse:
+    return ExperimentStatusResponse(
+        experiment_id=state.experiment_id,
+        phase=state.phase.value,
+        started=state.started,
+        remaining_seconds=state.remaining_seconds,
+        phase_seconds=state.phase_seconds,
+    )
+
+
+def _client_key(request: Request, device_id: str) -> str:
     forwarded_for = request.headers.get("x-forwarded-for", "")
     address = forwarded_for.split(",", maxsplit=1)[0].strip()
     if not address and request.client:
         address = request.client.host
-    identity = f"{address or 'unknown'}:{user_id}"
+    identity = f"{address or 'unknown'}:{device_id}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
 def _get_or_create_device(request: Request, response: Response) -> str:
-    device_id = trial_cookie_signer.verify_device_token(
-        request.cookies.get(TRIAL_DEVICE_COOKIE)
+    device_id = device_cookie_signer.verify(
+        request.cookies.get(EXPERIMENT_DEVICE_COOKIE)
     )
     if device_id:
         return device_id
-    device_id, token = trial_cookie_signer.new_device_token()
+    device_id, token = device_cookie_signer.new_token()
     response.set_cookie(
-        TRIAL_DEVICE_COOKIE,
+        EXPERIMENT_DEVICE_COOKIE,
         token,
         max_age=COOKIE_MAX_AGE_SECONDS,
         httponly=True,
@@ -273,34 +319,15 @@ def _get_or_create_device(request: Request, response: Response) -> str:
     return device_id
 
 
-def _has_debug_access(request: Request, device_id: str) -> bool:
-    return debug_cookie_signer.verify_debug_token(
-        request.cookies.get(DEBUG_ACCESS_COOKIE),
-        device_id,
-    )
-
-
-def _build_trial_status(
-    request: Request,
-    device_id: str,
-    *,
-    debug_unlimited: bool | None = None,
-) -> TrialStatus:
-    usage = trial_usage_store.status(device_id, settings.trial_message_limit)
-    if debug_unlimited is None:
-        debug_unlimited = _has_debug_access(request, device_id)
-    return TrialStatus(
-        limit=usage.limit,
-        used=usage.used,
-        remaining=usage.remaining,
-        locked=usage.locked and not debug_unlimited,
-        debug_unlimited=debug_unlimited,
-    )
-
-
-def _refund_trial(device_id: str, debug_unlimited: bool) -> None:
-    if not debug_unlimited:
-        trial_usage_store.refund(device_id)
+def _require_admin(admin_code: str | None) -> None:
+    configured = settings.experiment_admin_code
+    if not configured:
+        raise HTTPException(
+            status_code=503,
+            detail="EXPERIMENT_ADMIN_CODE が設定されていません。",
+        )
+    if not admin_code or not secrets.compare_digest(admin_code, configured):
+        raise HTTPException(status_code=401, detail="管理コードが違います。")
 
 
 def _uses_secure_cookies(request: Request) -> bool:

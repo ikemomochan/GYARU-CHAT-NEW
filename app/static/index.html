@@ -7,78 +7,42 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#e8faf7" />
-    <title>GYARU-CHAT</title>
-    <link rel="stylesheet" href="/static/style.css?v=usage-notice-20260816" />
+    <title>GYARU-CHAT Experiment</title>
+    <link rel="stylesheet" href="/static/style.css?v=experiment-20260817" />
   </head>
   <body>
     <main class="app-shell">
-      <section
-        id="usage-notice"
-        class="usage-notice"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="usage-notice-title"
-      >
-        <div class="usage-notice-card">
-          <div class="usage-notice-mark" aria-hidden="true">り</div>
-          <h2 id="usage-notice-title">はじめる前に読んでね！</h2>
-          <ul>
-            <li>相談事が得意なAIだから、何か相談してみてね！</li>
-            <li>体験版だから10回だけ入力できるよ！</li>
-            <li>システムのURLをむやみに拡散しないでくれるとうれしいー</li>
-            <li>なんか入力送信できなくね？ってときはリロードしてみてね！</li>
-            <li>大勢が同時に使うと、システムの調子が悪くなることがあるよ、ごめんねー</li>
-          </ul>
-          <button id="usage-notice-confirm" type="button">確認したよ</button>
-        </div>
-      </section>
-
       <header class="topbar">
         <div class="avatar" aria-hidden="true">り</div>
         <div class="identity">
-          <h1>りりめろ</h1>
+          <h1>りりめろ実験</h1>
           <p>
             <span class="status-dot"></span>
             <span id="status-label">接続確認中</span>
-            <span class="status-separator">·</span>
-            <span id="trial-label">残り -- 回</span>
           </p>
         </div>
-        <button id="clear-button" class="ghost-button" type="button">履歴を消す</button>
+        <div class="timer" aria-label="残り時間">
+          <span id="phase-label">前半</span>
+          <strong id="timer-label">04:00</strong>
+        </div>
       </header>
 
-      <section id="notice" class="notice hidden" role="status"></section>
+      <section id="phase-banner" class="phase-banner" aria-live="polite">
+        <strong id="phase-title">前半：シンプルなギャルAI</strong>
+        <span id="phase-help">最初のメッセージ送信で4分タイマーが始まります</span>
+      </section>
 
       <section id="messages" class="messages" aria-live="polite">
         <div class="message-row assistant">
-          <div class="bubble">
-            あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー
-          </div>
+          <div class="bubble">まずはこのAIと話してみてね。最初の送信でスタートするよ。</div>
         </div>
       </section>
 
-      <section id="trial-lock" class="trial-lock hidden" aria-live="polite">
-        <div class="trial-card">
-          <div class="trial-icon" aria-hidden="true">♡</div>
-          <h2>体験版はここまで</h2>
-          <p id="trial-lock-message">りりめろと話してくれてありがとー！体験回数を使い切ったよ。</p>
-          <details>
-            <summary>実装者はこちら</summary>
-            <form id="debug-unlock-form" class="debug-unlock-form">
-              <label for="debug-access-code">実装者用コード</label>
-              <div>
-                <input
-                  id="debug-access-code"
-                  type="password"
-                  maxlength="256"
-                  autocomplete="current-password"
-                  required
-                />
-                <button type="submit">解除</button>
-              </div>
-              <p id="debug-unlock-message" class="debug-unlock-message"></p>
-            </form>
-          </details>
+      <section id="experiment-gate" class="experiment-gate hidden" aria-live="polite">
+        <div class="experiment-card">
+          <h2 id="experiment-gate-title">前半はここまで</h2>
+          <p id="experiment-gate-message">後半では別のAIに切り替わります。</p>
+          <button id="advance-button" type="button">後半を始める</button>
         </div>
       </section>
 
@@ -98,6 +62,6 @@
         </button>
       </form>
     </main>
-    <script src="/static/app.js?v=usage-notice-20260816" defer></script>
-</body>
+    <script src="/static/app.js?v=experiment-20260817" defer></script>
+  </body>
 </html>

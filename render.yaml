@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     region: singapore
-    branch: system_YANS
+    branch: EXP01-system
     buildCommand: pip install -r requirements-render.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
@@ -42,13 +42,9 @@ services:
         value: "12"
       - key: CHAT_RATE_WINDOW_SECONDS
         value: "60"
-      - key: TRIAL_MESSAGE_LIMIT
-        value: "10"
-      - key: DEBUG_ACCESS_CODE
+      - key: EXPERIMENT_PHASE_SECONDS
+        value: "240"
+      - key: EXPERIMENT_ADMIN_CODE
         sync: false
-      - key: TRIAL_SIGNING_SECRET
+      - key: EXPERIMENT_DEVICE_SECRET
         generateValue: true
-      - key: DEBUG_TOKEN_SECRET
-        generateValue: true
-      - key: DEBUG_TOKEN_TTL_SECONDS
-        value: "2592000"

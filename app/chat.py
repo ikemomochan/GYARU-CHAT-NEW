@@ -168,6 +168,9 @@ class ChatService:
             retrieved_examples=len(style_examples),
             retrieved_principles=len(principle_context),
             warnings=warnings,
+            strategy=selection.strategy.value,
+            strategy_reason=selection.reason,
+            safety_level=selection.safety_level.value,
         )
 
     def get_session_state(

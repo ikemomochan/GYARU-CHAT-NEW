@@ -2,28 +2,32 @@ const form = document.querySelector("#chat-form");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
 const messagesElement = document.querySelector("#messages");
-const notice = document.querySelector("#notice");
 const statusLabel = document.querySelector("#status-label");
-const trialLabel = document.querySelector("#trial-label");
-const clearButton = document.querySelector("#clear-button");
-const trialLock = document.querySelector("#trial-lock");
-const trialLockMessage = document.querySelector("#trial-lock-message");
-const debugUnlockForm = document.querySelector("#debug-unlock-form");
-const debugAccessCode = document.querySelector("#debug-access-code");
-const debugUnlockMessage = document.querySelector("#debug-unlock-message");
-const usageNotice = document.querySelector("#usage-notice");
-const usageNoticeConfirm = document.querySelector("#usage-notice-confirm");
+const phaseLabel = document.querySelector("#phase-label");
+const timerLabel = document.querySelector("#timer-label");
+const phaseTitle = document.querySelector("#phase-title");
+const phaseHelp = document.querySelector("#phase-help");
+const experimentGate = document.querySelector("#experiment-gate");
+const experimentGateTitle = document.querySelector("#experiment-gate-title");
+const experimentGateMessage = document.querySelector("#experiment-gate-message");
+const advanceButton = document.querySelector("#advance-button");
 
-const USER_KEY = "mem0-chat-user-id";
-const CONVERSATION_KEY = "mem0-chat-conversation-id";
-const HISTORY_KEY = "mem0-chat-history";
-const RUNTIME_KEY = "mem0-chat-runtime-id";
-const TRIAL_USED_KEY = "ririmero-trial-used";
-const NOTICE_ACCEPTED_KEY = "ririmero-usage-notice";
-const NOTICE_VERSION = "20260816-v1";
-const INITIAL_GREETING = "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー";
+const USER_KEY = "experiment-chat-user-id";
+const CONVERSATION_KEY = "experiment-chat-conversation-id";
+const HISTORY_KEY = "experiment-chat-history";
+const PHASE_KEY = "experiment-chat-phase";
 const REQUEST_TIMEOUT_MS = 90_000;
+const SIMPLE_GREETING = "まずはこのAIと話してみてね。最初の送信でスタートするよ。";
+const FULL_GREETING = "後半のAIに切り替わったよ。ここから新しく話してね。";
+
 let viewportUpdateFrame = 0;
+let waiting = false;
+let experimentReady = false;
+let statusRefreshInFlight = false;
+let currentStatus = null;
+let pendingStatus = null;
+let renderedPhase = null;
+let history = loadHistory();
 
 function syncVisualViewport() {
   const viewport = window.visualViewport;
@@ -46,9 +50,7 @@ syncVisualViewport();
 
 function createClientId() {
   const webCrypto = globalThis.crypto;
-  if (typeof webCrypto?.randomUUID === "function") {
-    return webCrypto.randomUUID();
-  }
+  if (typeof webCrypto?.randomUUID === "function") return webCrypto.randomUUID();
   if (typeof webCrypto?.getRandomValues === "function") {
     const bytes = new Uint8Array(16);
     webCrypto.getRandomValues(bytes);
@@ -60,26 +62,17 @@ function createClientId() {
   return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-const getOrCreateId = (key) => {
+function getOrCreateId(key) {
   let value = localStorage.getItem(key);
   if (!value) {
     value = createClientId();
     localStorage.setItem(key, value);
   }
   return value;
-};
+}
 
 const userId = getOrCreateId(USER_KEY);
 let conversationId = getOrCreateId(CONVERSATION_KEY);
-let history = loadHistory();
-let waiting = false;
-let noticeAccepted = localStorage.getItem(NOTICE_ACCEPTED_KEY) === NOTICE_VERSION;
-let trialReady = false;
-let trialLimit = 10;
-let trialRemaining = 0;
-let localTrialUsed = loadLocalTrialUsed();
-let trialLocked = false;
-let debugUnlimited = false;
 
 function loadHistory() {
   try {
@@ -98,7 +91,7 @@ function scrollMessagesToBottom() {
   messagesElement.scrollTop = messagesElement.scrollHeight;
 }
 
-function addMessage(role, content, meta = "") {
+function addMessage(role, content) {
   const row = document.createElement("div");
   row.className = `message-row ${role}`;
   const body = document.createElement("div");
@@ -106,12 +99,6 @@ function addMessage(role, content, meta = "") {
   bubble.className = "bubble";
   bubble.textContent = content;
   body.appendChild(bubble);
-  if (meta) {
-    const metaElement = document.createElement("div");
-    metaElement.className = "message-meta";
-    metaElement.textContent = meta;
-    body.appendChild(metaElement);
-  }
   row.appendChild(body);
   messagesElement.appendChild(row);
   scrollMessagesToBottom();
@@ -127,143 +114,157 @@ function addTyping() {
   return row;
 }
 
-function showNotice(message) {
-  notice.textContent = message;
-  notice.classList.toggle("hidden", !message);
+function renderHistory(greeting) {
+  messagesElement.innerHTML = "";
+  if (!history.length) addMessage("assistant", greeting);
+  for (const message of history) addMessage(message.role, message.content);
+  window.requestAnimationFrame(scrollMessagesToBottom);
 }
 
-function setWaiting(value) {
-  waiting = value;
-  updateComposerAvailability();
-  input.setAttribute("aria-busy", String(value));
-  updateStatusLabel();
+function resetPhaseHistory(phase) {
+  history = [];
+  saveHistory();
+  renderedPhase = phase;
+  localStorage.setItem(PHASE_KEY, phase);
+  conversationId = createClientId();
+  localStorage.setItem(CONVERSATION_KEY, conversationId);
+  renderHistory(phase === "FULL" ? FULL_GREETING : SIMPLE_GREETING);
 }
 
-function loadLocalTrialUsed() {
-  const value = Number.parseInt(localStorage.getItem(TRIAL_USED_KEY) || "0", 10);
-  return Number.isFinite(value) && value > 0 ? value : 0;
+function formatTime(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  const minutes = Math.floor(seconds / 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function saveLocalTrialUsed(value) {
-  localTrialUsed = Math.max(localTrialUsed, value);
-  localStorage.setItem(TRIAL_USED_KEY, String(localTrialUsed));
+function activeConversationPhase(phase) {
+  if (phase === "FULL" || phase === "COMPLETE") return "FULL";
+  return "SIMPLE";
+}
+
+function showOperationalMessage(message) {
+  phaseHelp.textContent = message;
 }
 
 function updateComposerAvailability() {
-  const unavailable = !noticeAccepted || !trialReady || trialLocked;
+  const phase = currentStatus?.phase;
+  const active = phase === "WAITING" || phase === "SIMPLE" || phase === "FULL";
+  const unavailable = !experimentReady || !active;
   input.disabled = unavailable;
   sendButton.disabled = waiting || unavailable;
+  form.classList.toggle("hidden", !active && experimentReady);
 }
 
-function updateUsageNotice() {
-  usageNotice.classList.toggle("hidden", noticeAccepted);
-  usageNotice.setAttribute("aria-hidden", String(noticeAccepted));
-  updateComposerAvailability();
-}
-
-function updateStatusLabel() {
-  if (waiting) {
-    statusLabel.textContent = "返信を考え中…";
-  } else if (debugUnlimited) {
-    statusLabel.textContent = "実装者モード";
-  } else if (trialLocked) {
-    statusLabel.textContent = "体験終了";
-  } else {
-    statusLabel.textContent = "オンライン";
+function applyExperimentStatus(status) {
+  if (
+    waiting &&
+    currentStatus &&
+    status.phase !== currentStatus.phase
+  ) {
+    pendingStatus = status;
+    timerLabel.textContent = formatTime(status.remaining_seconds);
+    return;
   }
-}
 
-function applyTrialStatus(status) {
-  trialReady = true;
-  trialLimit = status.limit ?? trialLimit;
-  debugUnlimited = Boolean(status.debug_unlimited);
-  const serverRemaining = status.remaining ?? 0;
-  const serverUsed = status.used ?? Math.max(0, trialLimit - serverRemaining);
-  if (!debugUnlimited) saveLocalTrialUsed(serverUsed);
-  const effectiveUsed = Math.max(serverUsed, localTrialUsed);
-  trialRemaining = Math.max(0, trialLimit - effectiveUsed);
-  trialLocked = !debugUnlimited && (
-    Boolean(status.locked) || effectiveUsed >= trialLimit
-  );
-  trialLabel.textContent = debugUnlimited
-    ? "無制限 ∞"
-    : `残り ${trialRemaining} 回`;
-  trialLockMessage.textContent = `りりめろと話してくれてありがとー！この端末での${trialLimit}回分を使い切ったよ。`;
-  trialLock.classList.toggle("hidden", !trialLocked);
-  form.classList.toggle("hidden", trialLocked);
-  updateComposerAvailability();
-  updateStatusLabel();
-  if (trialLocked) window.requestAnimationFrame(scrollMessagesToBottom);
-}
-
-function resizeInput() {
-  input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
-}
-
-async function loadConfig() {
-  try {
-    const response = await fetch("/api/config");
-    if (!response.ok) throw new Error("config request failed");
-    const config = await response.json();
-    syncRuntime(config);
-    if (!config.api_key_configured) {
-      showNotice(".env の OPENAI_API_KEY を設定してからメッセージを送ってください。 ");
+  experimentReady = true;
+  currentStatus = status;
+  const conversationPhase = activeConversationPhase(status.phase);
+  const savedPhase = localStorage.getItem(PHASE_KEY);
+  if (renderedPhase === null) {
+    if (savedPhase === conversationPhase) {
+      renderedPhase = conversationPhase;
+      renderHistory(conversationPhase === "FULL" ? FULL_GREETING : SIMPLE_GREETING);
+    } else {
+      resetPhaseHistory(conversationPhase);
     }
-    return true;
-  } catch {
-    statusLabel.textContent = "サーバーに接続できません";
-    showNotice("バックエンドとの接続を確認してください。");
-    return false;
+  } else if (renderedPhase !== conversationPhase) {
+    resetPhaseHistory(conversationPhase);
   }
+
+  timerLabel.textContent = formatTime(status.remaining_seconds);
+  experimentGate.classList.add("hidden");
+  advanceButton.classList.remove("hidden");
+
+  if (status.phase === "WAITING") {
+    phaseLabel.textContent = "前半";
+    phaseTitle.textContent = "前半：シンプルなギャルAI";
+    phaseHelp.textContent = "最初のメッセージ送信で4分タイマーが始まります";
+    statusLabel.textContent = "開始待ち";
+  } else if (status.phase === "SIMPLE") {
+    phaseLabel.textContent = "前半";
+    phaseTitle.textContent = "前半：シンプルなギャルAI";
+    phaseHelp.textContent = "「あなたはギャルです」だけを指示したAIです";
+    statusLabel.textContent = "実験中";
+  } else if (status.phase === "TRANSITION") {
+    phaseLabel.textContent = "切替";
+    phaseTitle.textContent = "前半終了";
+    phaseHelp.textContent = "最後の返答を確認してから後半へ進んでください";
+    statusLabel.textContent = "切替待ち";
+    experimentGateTitle.textContent = "前半の4分が終わりました";
+    experimentGateMessage.textContent = "後半を始めると画面の会話履歴が消え、別のAIに切り替わります。";
+    advanceButton.textContent = "後半を始める";
+    experimentGate.classList.remove("hidden");
+  } else if (status.phase === "FULL") {
+    phaseLabel.textContent = "後半";
+    phaseTitle.textContent = "後半：りりめろAI";
+    phaseHelp.textContent = "現在の対話設計を使ったAIです";
+    statusLabel.textContent = "実験中";
+  } else {
+    phaseLabel.textContent = "終了";
+    phaseTitle.textContent = "実験終了";
+    phaseHelp.textContent = "8分間の対話が完了しました";
+    statusLabel.textContent = "終了";
+    experimentGateTitle.textContent = "実験は終了です";
+    experimentGateMessage.textContent = "最後まで話してくれてありがとうございました。";
+    advanceButton.classList.add("hidden");
+    experimentGate.classList.remove("hidden");
+  }
+  updateComposerAvailability();
+  window.requestAnimationFrame(scrollMessagesToBottom);
 }
 
-async function loadTrialStatus() {
+async function fetchExperimentStatus() {
+  const response = await fetch("/api/experiment/status", { cache: "no-store" });
+  if (!response.ok) throw new Error("experiment status request failed");
+  return response.json();
+}
+
+async function refreshExperimentStatus() {
+  if (statusRefreshInFlight) return;
+  statusRefreshInFlight = true;
   try {
-    const response = await fetch("/api/trial/status");
-    if (!response.ok) throw new Error("trial status request failed");
-    applyTrialStatus(await response.json());
+    applyExperimentStatus(await fetchExperimentStatus());
   } catch {
-    trialReady = false;
+    experimentReady = false;
     updateComposerAvailability();
-    statusLabel.textContent = "利用状態を確認できません";
-    showNotice("体験版の利用状態を確認できませんでした。再読み込みしてみてね。");
+    statusLabel.textContent = "接続できません";
+    showOperationalMessage("実験状態を確認できません。再読み込みしてみてください。 ");
+  } finally {
+    statusRefreshInFlight = false;
   }
 }
 
 async function initialize() {
   updateComposerAvailability();
-  if (await loadConfig()) await loadTrialStatus();
-}
-
-function syncRuntime(config) {
-  const previousRuntime = localStorage.getItem(RUNTIME_KEY);
-  if (
-    config.reset_state_on_start &&
-    previousRuntime !== config.runtime_id
-  ) {
-    history = [];
-    saveHistory();
-    conversationId = createClientId();
-    localStorage.setItem(CONVERSATION_KEY, conversationId);
-    messagesElement.innerHTML = "";
-    addMessage("assistant", INITIAL_GREETING);
+  try {
+    const configResponse = await fetch("/api/config");
+    if (!configResponse.ok) throw new Error("config request failed");
+    const config = await configResponse.json();
+    if (!config.api_key_configured) {
+      showOperationalMessage("OPENAI_API_KEY が設定されていません。 ");
+    }
+    await refreshExperimentStatus();
+  } catch {
+    statusLabel.textContent = "サーバーに接続できません";
+    showOperationalMessage("バックエンドとの接続を確認してください。 ");
   }
-  localStorage.setItem(RUNTIME_KEY, config.runtime_id);
 }
 
-for (const message of history) addMessage(message.role, message.content);
-updateUsageNotice();
-initialize();
-
-usageNoticeConfirm.addEventListener("click", () => {
-  localStorage.setItem(NOTICE_ACCEPTED_KEY, NOTICE_VERSION);
-  noticeAccepted = true;
-  updateUsageNotice();
-  if (trialReady && !trialLocked) input.focus();
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
 });
 
-input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -271,65 +272,35 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
-clearButton.addEventListener("click", async () => {
-  const previousConversationId = conversationId;
+advanceButton.addEventListener("click", async () => {
+  advanceButton.disabled = true;
   try {
-    await fetch("/api/session/reset", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId,
-        conversation_id: previousConversationId,
-      }),
-    });
-  } catch {
-    // A new conversation ID still isolates the next session locally.
-  }
-  history = [];
-  saveHistory();
-  conversationId = createClientId();
-  localStorage.setItem(CONVERSATION_KEY, conversationId);
-  messagesElement.innerHTML = "";
-  addMessage("assistant", INITIAL_GREETING);
-  showNotice("");
-});
-
-debugUnlockForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  debugUnlockMessage.textContent = "確認中…";
-  try {
-    const response = await fetch("/api/debug/unlock", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_code: debugAccessCode.value }),
-    });
+    const response = await fetch("/api/experiment/advance", { method: "POST" });
     const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "解除できませんでした。");
-    }
-    debugAccessCode.value = "";
-    debugUnlockMessage.textContent = "";
-    applyTrialStatus(data);
-    showNotice("実装者モードに切り替えました。この端末では回数無制限です。");
+    if (!response.ok) throw new Error(data.detail || "後半へ進めませんでした。");
+    applyExperimentStatus(data);
     input.focus();
   } catch (error) {
-    debugUnlockMessage.textContent = error.message || "解除できませんでした。";
+    showOperationalMessage(error.message || "後半へ進めませんでした。 ");
+  } finally {
+    advanceButton.disabled = false;
   }
 });
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message || waiting) return;
+  if (!message || waiting || input.disabled) return;
 
-  showNotice("");
   const requestHistory = history.slice(-12);
   addMessage("user", message);
   history.push({ role: "user", content: message });
   saveHistory();
   input.value = "";
-  resizeInput();
-  setWaiting(true);
+  input.style.height = "auto";
+  waiting = true;
+  updateComposerAvailability();
+  statusLabel.textContent = "返信を考え中…";
   const typing = addTyping();
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -351,55 +322,50 @@ form.addEventListener("submit", async (event) => {
     try {
       data = responseText ? JSON.parse(responseText) : {};
     } catch {
-      // RenderなどのプロキシがHTMLエラーを返した場合も送信欄を復帰させる。
+      // Proxy-generated non-JSON errors are handled below.
     }
     if (!response.ok) {
-      const apiDetail = typeof data.detail === "object"
+      const detail = typeof data.detail === "object"
         ? data.detail
         : { message: data.detail };
-      if (response.status === 403 && apiDetail.code === "trial_limit_reached") {
-        await loadTrialStatus();
-        const trialError = new Error(apiDetail.message || "体験版は終了しました。");
-        trialError.isTrialLimit = true;
-        throw trialError;
+      if (["experiment_transition", "experiment_complete"].includes(detail.code)) {
+        await refreshExperimentStatus();
+        const boundaryError = new Error(detail.message || "フェーズが終了しました。");
+        boundaryError.isPhaseBoundary = true;
+        throw boundaryError;
       }
       const retryAfter = response.headers.get("Retry-After");
-      const retryHint = retryAfter ? ` ${retryAfter}秒ほど待ってね。` : "";
-      throw new Error(`${apiDetail.message || "応答に失敗しました。"}${retryHint}`);
+      const retryHint = retryAfter ? ` ${retryAfter}秒ほど待ってください。` : "";
+      throw new Error(`${detail.message || "応答に失敗しました。"}${retryHint}`);
     }
     if (!data.reply) throw new Error("空の応答が返ってきました。");
     addMessage("assistant", data.reply);
     history.push({ role: "assistant", content: data.reply });
     saveHistory();
-    if (data.debug_unlimited) {
-      applyTrialStatus({
-        limit: trialLimit,
-        used: localTrialUsed,
-        remaining: trialRemaining,
-        locked: false,
-        debug_unlimited: true,
-      });
-    } else if (data.trial_remaining !== null) {
-      applyTrialStatus({
-        limit: trialLimit,
-        used: Math.max(0, trialLimit - data.trial_remaining),
-        remaining: data.trial_remaining,
-        locked: data.trial_locked,
-        debug_unlimited: false,
-      });
-    }
-    if (data.warnings?.length) showNotice(data.warnings.join(" "));
+    if (data.warnings?.length) showOperationalMessage(data.warnings.join(" "));
+    await refreshExperimentStatus();
   } catch (error) {
-    const message = error.name === "AbortError"
-      ? "90秒待っても返事がなかったから送信を止めたよ。もう一度試してみて。"
+    const messageText = error.name === "AbortError"
+      ? "90秒待っても返事がなかったため送信を止めました。"
       : (error.message || "通信エラーが発生しました。");
-    showNotice(message);
-    if (!error.isTrialLimit) {
-      addMessage("assistant", "ごめん、今うまく返せなかった。ちょい待ってもう一回送ってみて。 ");
+    showOperationalMessage(messageText);
+    if (!error.isPhaseBoundary) {
+      addMessage("assistant", "ごめん、今うまく返せなかった。少し待ってもう一度送ってみて。 ");
     }
   } finally {
     window.clearTimeout(timeoutId);
     typing.remove();
-    setWaiting(false);
+    waiting = false;
+    if (pendingStatus) {
+      const status = pendingStatus;
+      pendingStatus = null;
+      applyExperimentStatus(status);
+    } else {
+      updateComposerAvailability();
+      if (currentStatus) applyExperimentStatus(currentStatus);
+    }
   }
 });
+
+initialize();
+window.setInterval(refreshExperimentStatus, 1000);
