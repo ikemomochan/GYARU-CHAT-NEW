@@ -19,6 +19,26 @@ const RUNTIME_KEY = "mem0-chat-runtime-id";
 const TRIAL_USED_KEY = "ririmero-trial-used";
 const INITIAL_GREETING = "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー";
 const REQUEST_TIMEOUT_MS = 90_000;
+let viewportUpdateFrame = 0;
+
+function syncVisualViewport() {
+  const viewport = window.visualViewport;
+  const height = viewport?.height || window.innerHeight;
+  const offsetTop = viewport?.offsetTop || 0;
+  document.documentElement.style.setProperty("--app-height", `${height}px`);
+  document.documentElement.style.setProperty("--app-offset-top", `${offsetTop}px`);
+}
+
+function scheduleViewportSync() {
+  window.cancelAnimationFrame(viewportUpdateFrame);
+  viewportUpdateFrame = window.requestAnimationFrame(syncVisualViewport);
+}
+
+window.visualViewport?.addEventListener("resize", scheduleViewportSync);
+window.visualViewport?.addEventListener("scroll", scheduleViewportSync);
+window.addEventListener("resize", scheduleViewportSync);
+window.addEventListener("orientationchange", scheduleViewportSync);
+syncVisualViewport();
 
 function createClientId() {
   const webCrypto = globalThis.crypto;
@@ -356,6 +376,5 @@ form.addEventListener("submit", async (event) => {
     window.clearTimeout(timeoutId);
     typing.remove();
     setWaiting(false);
-    input.focus();
   }
 });

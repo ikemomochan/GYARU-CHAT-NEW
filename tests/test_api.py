@@ -65,8 +65,9 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert index.status_code == 200
     assert "りりめろ" in index.text
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in index.text
-    assert "style.css?v=trial-lock-20260816" in index.text
-    assert "app.js?v=trial-lock-20260816" in index.text
+    assert "style.css?v=mobile-viewport-20260816" in index.text
+    assert "app.js?v=mobile-viewport-20260816" in index.text
+    assert "interactive-widget=resizes-content" in index.text
     assert config.status_code == 200
     assert config.json()["llm_provider"] == "openai"
     assert config.json()["strategy_model"] == "gpt-5.6-luna"
@@ -89,6 +90,9 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert "value = crypto.randomUUID()" not in script
     assert "function createClientId()" in script
     assert "REQUEST_TIMEOUT_MS = 90_000" in script
+    assert "function syncVisualViewport()" in script
+    assert 'window.visualViewport?.addEventListener("resize"' in script
+    assert 'style.setProperty("--app-height"' in script
     assert "input.disabled = value" not in script
     assert 'fetch("/api/trial/status")' in script
     assert 'fetch("/api/debug/unlock"' in script
@@ -100,6 +104,8 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert "background: #cdfffc" in styles
     assert "background: #ffffff" in styles
     assert "backdrop-filter" not in styles
+    assert "height: var(--app-height, 100dvh)" in styles
+    assert "position: fixed" in styles
 
 
 def test_ui_background_image_is_served() -> None:
