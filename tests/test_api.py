@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.core.llm import LanguageModelRateLimitError
+from app.core.trial_access import TrialCookieSigner, TrialUsageStore
+from app.schemas import ChatResponse
 
 
 class FakeChatService:
@@ -17,6 +19,13 @@ class FakeChatService:
 
     def close(self) -> None:
         self.closed = True
+
+    async def reply(self, _request) -> ChatResponse:
+        return ChatResponse(
+            reply="返事",
+            recalled_memories=0,
+            retrieved_examples=0,
+        )
 
 
 class FakeServiceGetter:
@@ -56,8 +65,8 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert index.status_code == 200
     assert "りりめろ" in index.text
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in index.text
-    assert "style.css?v=mobile-solid-20260815" in index.text
-    assert "app.js?v=mobile-recovery-20260815" in index.text
+    assert "style.css?v=trial-lock-20260816" in index.text
+    assert "app.js?v=trial-lock-20260816" in index.text
     assert config.status_code == 200
     assert config.json()["llm_provider"] == "openai"
     assert config.json()["strategy_model"] == "gpt-5.6-luna"
@@ -81,6 +90,9 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert "function createClientId()" in script
     assert "REQUEST_TIMEOUT_MS = 90_000" in script
     assert "input.disabled = value" not in script
+    assert 'fetch("/api/trial/status")' in script
+    assert 'fetch("/api/debug/unlock"' in script
+    assert 'TRIAL_USED_KEY = "ririmero-trial-used"' in script
     assert "サーバーを再起動したので" not in script
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in script
     assert 'url("/fig/UI-background.png")' in styles
@@ -175,3 +187,67 @@ def test_rate_limit_key_separates_clients_on_the_same_ip() -> None:
     )
 
     assert main._client_key(request, "phone") != main._client_key(request, "pc")
+
+
+def test_trial_locks_after_limit_and_debug_code_unlocks(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    service = FakeChatService()
+    monkeypatch.setattr(main, "get_chat_service", FakeServiceGetter(service))
+    monkeypatch.setattr(
+        main,
+        "settings",
+        replace(
+            main.settings,
+            openai_api_key="test-key",
+            trial_message_limit=2,
+            debug_access_code="owner-code",
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "trial_usage_store",
+        TrialUsageStore(tmp_path / "trial.db"),
+    )
+    monkeypatch.setattr(
+        main,
+        "trial_cookie_signer",
+        TrialCookieSigner("test-signing-secret", 3600),
+    )
+    monkeypatch.setattr(
+        main,
+        "debug_cookie_signer",
+        TrialCookieSigner("test-debug-secret", 3600),
+    )
+    main.chat_rate_limiter.reset()
+    main.debug_unlock_rate_limiter.reset()
+
+    payload = {
+        "message": "こんにちは",
+        "user_id": "test-user",
+        "conversation_id": "test-conversation",
+        "history": [],
+    }
+    with TestClient(main.app, base_url="https://testserver") as client:
+        initial = client.get("/api/trial/status")
+        first = client.post("/api/chat", json=payload)
+        second = client.post("/api/chat", json=payload)
+        blocked = client.post("/api/chat", json=payload)
+        unlocked = client.post(
+            "/api/debug/unlock",
+            json={"access_code": "owner-code"},
+        )
+        unlimited = client.post("/api/chat", json=payload)
+
+    assert initial.json()["remaining"] == 2
+    assert first.json()["trial_remaining"] == 1
+    assert second.json()["trial_remaining"] == 0
+    assert second.json()["trial_locked"] is True
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"]["code"] == "trial_limit_reached"
+    assert unlocked.status_code == 200
+    assert unlocked.json()["debug_unlimited"] is True
+    assert unlimited.status_code == 200
+    assert unlimited.json()["debug_unlimited"] is True
+    assert unlimited.json()["trial_remaining"] is None

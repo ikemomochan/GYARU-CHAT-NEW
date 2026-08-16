@@ -48,6 +48,8 @@ textarea { font: inherit; }
 }
 
 .topbar {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -92,6 +94,10 @@ textarea { font: inherit; }
   font-size: 11px;
 }
 
+.status-separator { opacity: 0.45; }
+
+#trial-label { white-space: nowrap; }
+
 .status-dot {
   width: 7px;
   height: 7px;
@@ -115,6 +121,8 @@ textarea { font: inherit; }
 }
 
 .notice {
+  grid-column: 1;
+  grid-row: 2;
   margin: 10px 12px 0;
   padding: 9px 11px;
   border: 1px solid rgba(255, 255, 255, 0.82);
@@ -127,7 +135,103 @@ textarea { font: inherit; }
 
 .hidden { display: none; }
 
+.trial-lock {
+  z-index: 10;
+  grid-column: 1;
+  grid-row: 2 / -1;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(232, 247, 244, 0.94);
+}
+
+.trial-lock.hidden { display: none; }
+
+.trial-card {
+  width: min(100%, 360px);
+  padding: 26px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  text-align: center;
+  background: #cdfffc;
+  box-shadow: 0 14px 40px rgba(61, 52, 72, 0.2);
+}
+
+.trial-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 12px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #35685f;
+  background: #fff;
+  font-size: 24px;
+}
+
+.trial-card h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.trial-card > p {
+  margin: 0;
+  color: #4f5e5b;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.trial-card details {
+  margin-top: 22px;
+  color: #52615e;
+  font-size: 12px;
+}
+
+.trial-card summary { cursor: pointer; }
+
+.debug-unlock-form {
+  margin-top: 14px;
+  text-align: left;
+}
+
+.debug-unlock-form label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.debug-unlock-form > div {
+  display: flex;
+  gap: 7px;
+}
+
+.debug-unlock-form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgba(53, 104, 95, 0.24);
+  border-radius: 12px;
+  padding: 10px 11px;
+  outline: none;
+  background: #fff;
+}
+
+.debug-unlock-form button {
+  border: 0;
+  border-radius: 12px;
+  padding: 0 14px;
+  color: #fff;
+  background: #168b73;
+  cursor: pointer;
+}
+
+.debug-unlock-message {
+  min-height: 1.4em;
+  margin: 7px 2px 0;
+  color: #9b3f56;
+}
+
 .messages {
+  grid-column: 1;
+  grid-row: 3;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -200,6 +304,8 @@ textarea { font: inherit; }
 .typing span:nth-child(3) { animation-delay: 0.24s; }
 
 .composer {
+  grid-column: 1;
+  grid-row: 4;
   display: flex;
   align-items: flex-end;
   gap: 9px;

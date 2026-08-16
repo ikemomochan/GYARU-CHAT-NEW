@@ -4,12 +4,19 @@ const sendButton = document.querySelector("#send-button");
 const messagesElement = document.querySelector("#messages");
 const notice = document.querySelector("#notice");
 const statusLabel = document.querySelector("#status-label");
+const trialLabel = document.querySelector("#trial-label");
 const clearButton = document.querySelector("#clear-button");
+const trialLock = document.querySelector("#trial-lock");
+const trialLockMessage = document.querySelector("#trial-lock-message");
+const debugUnlockForm = document.querySelector("#debug-unlock-form");
+const debugAccessCode = document.querySelector("#debug-access-code");
+const debugUnlockMessage = document.querySelector("#debug-unlock-message");
 
 const USER_KEY = "mem0-chat-user-id";
 const CONVERSATION_KEY = "mem0-chat-conversation-id";
 const HISTORY_KEY = "mem0-chat-history";
 const RUNTIME_KEY = "mem0-chat-runtime-id";
+const TRIAL_USED_KEY = "ririmero-trial-used";
 const INITIAL_GREETING = "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー";
 const REQUEST_TIMEOUT_MS = 90_000;
 
@@ -42,6 +49,12 @@ const userId = getOrCreateId(USER_KEY);
 let conversationId = getOrCreateId(CONVERSATION_KEY);
 let history = loadHistory();
 let waiting = false;
+let trialReady = false;
+let trialLimit = 10;
+let trialRemaining = 0;
+let localTrialUsed = loadLocalTrialUsed();
+let trialLocked = false;
+let debugUnlimited = false;
 
 function loadHistory() {
   try {
@@ -92,9 +105,58 @@ function showNotice(message) {
 
 function setWaiting(value) {
   waiting = value;
-  sendButton.disabled = value;
+  updateComposerAvailability();
   input.setAttribute("aria-busy", String(value));
-  statusLabel.textContent = value ? "返信を考え中…" : "オンライン";
+  updateStatusLabel();
+}
+
+function loadLocalTrialUsed() {
+  const value = Number.parseInt(localStorage.getItem(TRIAL_USED_KEY) || "0", 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function saveLocalTrialUsed(value) {
+  localTrialUsed = Math.max(localTrialUsed, value);
+  localStorage.setItem(TRIAL_USED_KEY, String(localTrialUsed));
+}
+
+function updateComposerAvailability() {
+  const unavailable = !trialReady || trialLocked;
+  input.disabled = unavailable;
+  sendButton.disabled = waiting || unavailable;
+}
+
+function updateStatusLabel() {
+  if (waiting) {
+    statusLabel.textContent = "返信を考え中…";
+  } else if (debugUnlimited) {
+    statusLabel.textContent = "実装者モード";
+  } else if (trialLocked) {
+    statusLabel.textContent = "体験終了";
+  } else {
+    statusLabel.textContent = "オンライン";
+  }
+}
+
+function applyTrialStatus(status) {
+  trialReady = true;
+  trialLimit = status.limit ?? trialLimit;
+  debugUnlimited = Boolean(status.debug_unlimited);
+  const serverRemaining = status.remaining ?? 0;
+  const serverUsed = status.used ?? Math.max(0, trialLimit - serverRemaining);
+  if (!debugUnlimited) saveLocalTrialUsed(serverUsed);
+  const effectiveUsed = Math.max(serverUsed, localTrialUsed);
+  trialRemaining = Math.max(0, trialLimit - effectiveUsed);
+  trialLocked = !debugUnlimited && (
+    Boolean(status.locked) || effectiveUsed >= trialLimit
+  );
+  trialLabel.textContent = debugUnlimited
+    ? "無制限 ∞"
+    : `残り ${trialRemaining} 回`;
+  trialLockMessage.textContent = `りりめろと話してくれてありがとー！この端末での${trialLimit}回分を使い切ったよ。`;
+  trialLock.classList.toggle("hidden", !trialLocked);
+  updateComposerAvailability();
+  updateStatusLabel();
 }
 
 function resizeInput() {
@@ -108,14 +170,33 @@ async function loadConfig() {
     if (!response.ok) throw new Error("config request failed");
     const config = await response.json();
     syncRuntime(config);
-    statusLabel.textContent = "オンライン";
     if (!config.api_key_configured) {
       showNotice(".env の OPENAI_API_KEY を設定してからメッセージを送ってください。 ");
     }
+    return true;
   } catch {
     statusLabel.textContent = "サーバーに接続できません";
     showNotice("バックエンドとの接続を確認してください。");
+    return false;
   }
+}
+
+async function loadTrialStatus() {
+  try {
+    const response = await fetch("/api/trial/status");
+    if (!response.ok) throw new Error("trial status request failed");
+    applyTrialStatus(await response.json());
+  } catch {
+    trialReady = false;
+    updateComposerAvailability();
+    statusLabel.textContent = "利用状態を確認できません";
+    showNotice("体験版の利用状態を確認できませんでした。再読み込みしてみてね。");
+  }
+}
+
+async function initialize() {
+  updateComposerAvailability();
+  if (await loadConfig()) await loadTrialStatus();
 }
 
 function syncRuntime(config) {
@@ -135,7 +216,7 @@ function syncRuntime(config) {
 }
 
 for (const message of history) addMessage(message.role, message.content);
-loadConfig();
+initialize();
 
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
@@ -166,6 +247,29 @@ clearButton.addEventListener("click", async () => {
   messagesElement.innerHTML = "";
   addMessage("assistant", INITIAL_GREETING);
   showNotice("");
+});
+
+debugUnlockForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  debugUnlockMessage.textContent = "確認中…";
+  try {
+    const response = await fetch("/api/debug/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_code: debugAccessCode.value }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "解除できませんでした。");
+    }
+    debugAccessCode.value = "";
+    debugUnlockMessage.textContent = "";
+    applyTrialStatus(data);
+    showNotice("実装者モードに切り替えました。この端末では回数無制限です。");
+    input.focus();
+  } catch (error) {
+    debugUnlockMessage.textContent = error.message || "解除できませんでした。";
+  }
 });
 
 form.addEventListener("submit", async (event) => {
@@ -205,21 +309,49 @@ form.addEventListener("submit", async (event) => {
       // RenderなどのプロキシがHTMLエラーを返した場合も送信欄を復帰させる。
     }
     if (!response.ok) {
+      const apiDetail = typeof data.detail === "object"
+        ? data.detail
+        : { message: data.detail };
+      if (response.status === 403 && apiDetail.code === "trial_limit_reached") {
+        await loadTrialStatus();
+        const trialError = new Error(apiDetail.message || "体験版は終了しました。");
+        trialError.isTrialLimit = true;
+        throw trialError;
+      }
       const retryAfter = response.headers.get("Retry-After");
       const retryHint = retryAfter ? ` ${retryAfter}秒ほど待ってね。` : "";
-      throw new Error(`${data.detail || "応答に失敗しました。"}${retryHint}`);
+      throw new Error(`${apiDetail.message || "応答に失敗しました。"}${retryHint}`);
     }
     if (!data.reply) throw new Error("空の応答が返ってきました。");
     addMessage("assistant", data.reply);
     history.push({ role: "assistant", content: data.reply });
     saveHistory();
+    if (data.debug_unlimited) {
+      applyTrialStatus({
+        limit: trialLimit,
+        used: localTrialUsed,
+        remaining: trialRemaining,
+        locked: false,
+        debug_unlimited: true,
+      });
+    } else if (data.trial_remaining !== null) {
+      applyTrialStatus({
+        limit: trialLimit,
+        used: Math.max(0, trialLimit - data.trial_remaining),
+        remaining: data.trial_remaining,
+        locked: data.trial_locked,
+        debug_unlimited: false,
+      });
+    }
     if (data.warnings?.length) showNotice(data.warnings.join(" "));
   } catch (error) {
     const message = error.name === "AbortError"
       ? "90秒待っても返事がなかったから送信を止めたよ。もう一度試してみて。"
       : (error.message || "通信エラーが発生しました。");
     showNotice(message);
-    addMessage("assistant", "ごめん、今うまく返せなかった。ちょい待ってもう一回送ってみて。 ");
+    if (!error.isTrialLimit) {
+      addMessage("assistant", "ごめん、今うまく返せなかった。ちょい待ってもう一回送ってみて。 ");
+    }
   } finally {
     window.clearTimeout(timeoutId);
     typing.remove();

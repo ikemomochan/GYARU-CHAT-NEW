@@ -38,12 +38,27 @@ class SessionResetRequest(BaseModel):
     conversation_id: str = Field(min_length=1, max_length=128)
 
 
+class DebugUnlockRequest(BaseModel):
+    access_code: str = Field(min_length=1, max_length=256)
+
+
+class TrialStatus(BaseModel):
+    limit: int
+    used: int
+    remaining: int
+    locked: bool
+    debug_unlimited: bool
+
+
 class ChatResponse(BaseModel):
     reply: str
     recalled_memories: int
     retrieved_examples: int
     retrieved_principles: int = 0
     warnings: list[str] = Field(default_factory=list)
+    trial_remaining: int | None = None
+    trial_locked: bool = False
+    debug_unlimited: bool = False
 
 
 class PublicConfig(BaseModel):

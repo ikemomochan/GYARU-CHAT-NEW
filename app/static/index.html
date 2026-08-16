@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#e8faf7" />
     <title>GYARU-CHAT</title>
-    <link rel="stylesheet" href="/static/style.css?v=mobile-solid-20260815" />
+    <link rel="stylesheet" href="/static/style.css?v=trial-lock-20260816" />
   </head>
   <body>
     <main class="app-shell">
@@ -13,7 +13,12 @@
         <div class="avatar" aria-hidden="true">り</div>
         <div class="identity">
           <h1>りりめろ</h1>
-          <p><span class="status-dot"></span><span id="status-label">接続確認中</span></p>
+          <p>
+            <span class="status-dot"></span>
+            <span id="status-label">接続確認中</span>
+            <span class="status-separator">·</span>
+            <span id="trial-label">残り -- 回</span>
+          </p>
         </div>
         <button id="clear-button" class="ghost-button" type="button">履歴を消す</button>
       </header>
@@ -25,6 +30,31 @@
           <div class="bubble">
             あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー
           </div>
+        </div>
+      </section>
+
+      <section id="trial-lock" class="trial-lock hidden" aria-live="polite">
+        <div class="trial-card">
+          <div class="trial-icon" aria-hidden="true">♡</div>
+          <h2>体験版はここまで</h2>
+          <p id="trial-lock-message">りりめろと話してくれてありがとー！体験回数を使い切ったよ。</p>
+          <details>
+            <summary>実装者はこちら</summary>
+            <form id="debug-unlock-form" class="debug-unlock-form">
+              <label for="debug-access-code">実装者用コード</label>
+              <div>
+                <input
+                  id="debug-access-code"
+                  type="password"
+                  maxlength="256"
+                  autocomplete="current-password"
+                  required
+                />
+                <button type="submit">解除</button>
+              </div>
+              <p id="debug-unlock-message" class="debug-unlock-message"></p>
+            </form>
+          </details>
         </div>
       </section>
 
@@ -44,6 +74,6 @@
         </button>
       </form>
     </main>
-    <script src="/static/app.js?v=mobile-recovery-20260815" defer></script>
+    <script src="/static/app.js?v=trial-lock-20260816" defer></script>
 </body>
 </html>

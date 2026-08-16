@@ -69,6 +69,11 @@ class Settings:
     principle_rag_top_k: int
     chat_rate_limit: int
     chat_rate_window_seconds: int
+    trial_message_limit: int
+    debug_access_code: str
+    trial_signing_secret: str
+    debug_token_secret: str
+    debug_token_ttl_seconds: int
     chat_history_limit: int
     summary_trigger_messages: int
     max_output_tokens: int
@@ -83,6 +88,7 @@ class Settings:
     style_cache_path: Path
     principle_rag_path: Path
     principle_rag_cache_path: Path
+    trial_db_path: Path
 
     @property
     def api_key_configured(self) -> bool:
@@ -131,6 +137,13 @@ def get_settings() -> Settings:
         chat_rate_window_seconds=_positive_int(
             "CHAT_RATE_WINDOW_SECONDS", 60
         ),
+        trial_message_limit=_positive_int("TRIAL_MESSAGE_LIMIT", 10),
+        debug_access_code=os.getenv("DEBUG_ACCESS_CODE", "").strip(),
+        trial_signing_secret=os.getenv("TRIAL_SIGNING_SECRET", "").strip(),
+        debug_token_secret=os.getenv("DEBUG_TOKEN_SECRET", "").strip(),
+        debug_token_ttl_seconds=_positive_int(
+            "DEBUG_TOKEN_TTL_SECONDS", 2_592_000
+        ),
         chat_history_limit=_positive_int("CHAT_HISTORY_LIMIT", 12),
         summary_trigger_messages=_positive_int("SUMMARY_TRIGGER_MESSAGES", 12),
         max_output_tokens=_positive_int("MAX_OUTPUT_TOKENS", 1000),
@@ -166,4 +179,5 @@ def get_settings() -> Settings:
             "PRINCIPLE_RAG_CACHE_PATH",
             ".data/gyaru_principle_embeddings.json",
         ),
+        trial_db_path=_path_from_env("TRIAL_DB_PATH", ".data/trial_usage.db"),
     )
