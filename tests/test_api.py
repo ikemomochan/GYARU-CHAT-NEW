@@ -65,8 +65,11 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert index.status_code == 200
     assert "りりめろ" in index.text
     assert "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー" in index.text
-    assert "style.css?v=trial-output-visible-20260816" in index.text
-    assert "app.js?v=trial-output-visible-20260816" in index.text
+    assert "style.css?v=usage-notice-20260816" in index.text
+    assert "app.js?v=usage-notice-20260816" in index.text
+    assert "相談事が得意なAIだから" in index.text
+    assert "体験版だから10回だけ入力できるよ" in index.text
+    assert "確認したよ" in index.text
     assert "interactive-widget=resizes-content" in index.text
     assert config.status_code == 200
     assert config.json()["llm_provider"] == "openai"
@@ -97,6 +100,8 @@ def test_ui_hides_model_chain_and_uses_mobile_background() -> None:
     assert 'fetch("/api/trial/status")' in script
     assert 'fetch("/api/debug/unlock"' in script
     assert 'TRIAL_USED_KEY = "ririmero-trial-used"' in script
+    assert 'NOTICE_ACCEPTED_KEY = "ririmero-usage-notice"' in script
+    assert "!noticeAccepted || !trialReady || trialLocked" in script
     assert 'form.classList.toggle("hidden", trialLocked)' in script
     assert "requestAnimationFrame(scrollMessagesToBottom)" in script
     assert "サーバーを再起動したので" not in script

@@ -8,10 +8,31 @@
     />
     <meta name="theme-color" content="#e8faf7" />
     <title>GYARU-CHAT</title>
-    <link rel="stylesheet" href="/static/style.css?v=trial-output-visible-20260816" />
+    <link rel="stylesheet" href="/static/style.css?v=usage-notice-20260816" />
   </head>
   <body>
     <main class="app-shell">
+      <section
+        id="usage-notice"
+        class="usage-notice"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="usage-notice-title"
+      >
+        <div class="usage-notice-card">
+          <div class="usage-notice-mark" aria-hidden="true">り</div>
+          <h2 id="usage-notice-title">はじめる前に読んでね！</h2>
+          <ul>
+            <li>相談事が得意なAIだから、何か相談してみてね！</li>
+            <li>体験版だから10回だけ入力できるよ！</li>
+            <li>システムのURLをむやみに拡散しないでくれるとうれしいー</li>
+            <li>なんか入力送信できなくね？ってときはリロードしてみてね！</li>
+            <li>大勢が同時に使うと、システムの調子が悪くなることがあるよ、ごめんねー</li>
+          </ul>
+          <button id="usage-notice-confirm" type="button">確認したよ</button>
+        </div>
+      </section>
+
       <header class="topbar">
         <div class="avatar" aria-hidden="true">り</div>
         <div class="identity">
@@ -77,6 +98,6 @@
         </button>
       </form>
     </main>
-    <script src="/static/app.js?v=trial-output-visible-20260816" defer></script>
+    <script src="/static/app.js?v=usage-notice-20260816" defer></script>
 </body>
 </html>

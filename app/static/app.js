@@ -11,12 +11,16 @@ const trialLockMessage = document.querySelector("#trial-lock-message");
 const debugUnlockForm = document.querySelector("#debug-unlock-form");
 const debugAccessCode = document.querySelector("#debug-access-code");
 const debugUnlockMessage = document.querySelector("#debug-unlock-message");
+const usageNotice = document.querySelector("#usage-notice");
+const usageNoticeConfirm = document.querySelector("#usage-notice-confirm");
 
 const USER_KEY = "mem0-chat-user-id";
 const CONVERSATION_KEY = "mem0-chat-conversation-id";
 const HISTORY_KEY = "mem0-chat-history";
 const RUNTIME_KEY = "mem0-chat-runtime-id";
 const TRIAL_USED_KEY = "ririmero-trial-used";
+const NOTICE_ACCEPTED_KEY = "ririmero-usage-notice";
+const NOTICE_VERSION = "20260816-v1";
 const INITIAL_GREETING = "あーし、おしゃべり系ギャルのりりめろ💖いっぱい話そー";
 const REQUEST_TIMEOUT_MS = 90_000;
 let viewportUpdateFrame = 0;
@@ -69,6 +73,7 @@ const userId = getOrCreateId(USER_KEY);
 let conversationId = getOrCreateId(CONVERSATION_KEY);
 let history = loadHistory();
 let waiting = false;
+let noticeAccepted = localStorage.getItem(NOTICE_ACCEPTED_KEY) === NOTICE_VERSION;
 let trialReady = false;
 let trialLimit = 10;
 let trialRemaining = 0;
@@ -145,9 +150,15 @@ function saveLocalTrialUsed(value) {
 }
 
 function updateComposerAvailability() {
-  const unavailable = !trialReady || trialLocked;
+  const unavailable = !noticeAccepted || !trialReady || trialLocked;
   input.disabled = unavailable;
   sendButton.disabled = waiting || unavailable;
+}
+
+function updateUsageNotice() {
+  usageNotice.classList.toggle("hidden", noticeAccepted);
+  usageNotice.setAttribute("aria-hidden", String(noticeAccepted));
+  updateComposerAvailability();
 }
 
 function updateStatusLabel() {
@@ -242,7 +253,15 @@ function syncRuntime(config) {
 }
 
 for (const message of history) addMessage(message.role, message.content);
+updateUsageNotice();
 initialize();
+
+usageNoticeConfirm.addEventListener("click", () => {
+  localStorage.setItem(NOTICE_ACCEPTED_KEY, NOTICE_VERSION);
+  noticeAccepted = true;
+  updateUsageNotice();
+  if (trialReady && !trialLocked) input.focus();
+});
 
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
