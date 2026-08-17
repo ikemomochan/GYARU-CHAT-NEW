@@ -137,6 +137,12 @@ function formatTime(totalSeconds) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  if (seconds > 0 && seconds % 60 === 0) return `${seconds / 60}分`;
+  return formatTime(seconds);
+}
+
 function activeConversationPhase(phase) {
   if (phase === "FULL" || phase === "COMPLETE") return "FULL";
   return "SIMPLE";
@@ -182,13 +188,15 @@ function applyExperimentStatus(status) {
   }
 
   timerLabel.textContent = formatTime(status.remaining_seconds);
+  const phaseDuration = formatDuration(status.phase_seconds);
+  const totalDuration = formatDuration(status.phase_seconds * 2);
   experimentGate.classList.add("hidden");
   advanceButton.classList.remove("hidden");
 
   if (status.phase === "WAITING") {
     phaseLabel.textContent = "前半";
     phaseTitle.textContent = "前半：シンプルなギャルAI";
-    phaseHelp.textContent = "最初のメッセージ送信で4分タイマーが始まります";
+    phaseHelp.textContent = `最初のメッセージ送信で${phaseDuration}タイマーが始まります`;
     statusLabel.textContent = "開始待ち";
   } else if (status.phase === "SIMPLE") {
     phaseLabel.textContent = "前半";
@@ -200,7 +208,7 @@ function applyExperimentStatus(status) {
     phaseTitle.textContent = "前半終了";
     phaseHelp.textContent = "最後の返答を確認してから後半へ進んでください";
     statusLabel.textContent = "切替待ち";
-    experimentGateTitle.textContent = "前半の4分が終わりました";
+    experimentGateTitle.textContent = `前半の${phaseDuration}が終わりました`;
     experimentGateMessage.textContent = "後半を始めると画面の会話履歴が消え、別のAIに切り替わります。";
     advanceButton.textContent = "後半を始める";
     experimentGate.classList.remove("hidden");
@@ -212,7 +220,7 @@ function applyExperimentStatus(status) {
   } else {
     phaseLabel.textContent = "終了";
     phaseTitle.textContent = "実験終了";
-    phaseHelp.textContent = "8分間の対話が完了しました";
+    phaseHelp.textContent = `${totalDuration}の対話が完了しました`;
     statusLabel.textContent = "終了";
     experimentGateTitle.textContent = "実験は終了です";
     experimentGateMessage.textContent = "最後まで話してくれてありがとうございました。";

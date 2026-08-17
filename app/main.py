@@ -134,7 +134,7 @@ async def advance_experiment(
     if state.phase is not ExperimentPhase.FULL:
         raise HTTPException(
             status_code=409,
-            detail="前半の4分が終了してから後半へ進めます。",
+            detail="前半が終了してから後半へ進めます。",
         )
     return _status_response(state)
 
@@ -204,7 +204,7 @@ async def chat(
             status_code=403,
             detail={
                 "code": "experiment_complete",
-                "message": "8分間の実験は終了しました。",
+                "message": "実験は終了しました。",
             },
         )
 

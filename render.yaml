@@ -43,7 +43,7 @@ services:
       - key: CHAT_RATE_WINDOW_SECONDS
         value: "60"
       - key: EXPERIMENT_PHASE_SECONDS
-        value: "240"
+        value: "420"
       - key: EXPERIMENT_ADMIN_CODE
         sync: false
       - key: EXPERIMENT_DEVICE_SECRET

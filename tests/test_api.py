@@ -89,7 +89,7 @@ def _configure_experiment(monkeypatch, tmp_path):
         replace(
             main.settings,
             openai_api_key="test-key",
-            experiment_phase_seconds=240,
+            experiment_phase_seconds=420,
             experiment_admin_code="admin-code",
         ),
     )
@@ -113,7 +113,7 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert "前半：シンプルなギャルAI" in index.text
     assert "後半を始める" in index.text
     assert "style.css?v=experiment-20260817" in index.text
-    assert "app.js?v=experiment-20260817" in index.text
+    assert "app.js?v=experiment-20260818" in index.text
     assert "相談事が得意なAIだから" not in index.text
     assert "10回だけ" not in index.text
     assert config.status_code == 200
@@ -164,7 +164,7 @@ def test_two_phase_experiment_clears_model_history_and_exports_logs(
         waiting = client.get("/api/experiment/status")
         simple_reply = client.post("/api/chat", json=_payload("前半の発話"))
 
-        clock.advance(241)
+        clock.advance(421)
         transition = client.get("/api/experiment/status")
         blocked = client.post("/api/chat", json=_payload("境界の発話"))
         advanced = client.post("/api/experiment/advance")
@@ -175,12 +175,12 @@ def test_two_phase_experiment_clears_model_history_and_exports_logs(
             headers={"X-Admin-Code": "admin-code"},
         )
 
-        clock.advance(241)
+        clock.advance(421)
         completed = client.get("/api/experiment/status")
         ended = client.post("/api/chat", json=_payload("終了後"))
 
     assert waiting.json()["phase"] == "WAITING"
-    assert waiting.json()["remaining_seconds"] == 240
+    assert waiting.json()["remaining_seconds"] == 420
     assert simple_reply.status_code == 200
     assert simple_reply.json()["reply"] == "シンプル返答"
     assert simple.requests[0].history == []

@@ -73,14 +73,14 @@ SelectorとGeneratorは `LanguageModel` Protocolだけに依存します。現�
 WAITING
   │ 最初のメッセージを送信
   ▼
-SIMPLE（4分）
+SIMPLE（7分）
   │ 時間終了
   ▼
 TRANSITION（入力停止）
   │ 「後半を始める」
   │ UI履歴・モデル履歴を初期化
   ▼
-FULL（4分）
+FULL（7分）
   │ 時間終了
   ▼
 COMPLETE（入力停止）
@@ -151,7 +151,7 @@ LLM_PROVIDER=openai
 STRATEGY_MODEL=gpt-5.6-luna
 RESPONSE_MODEL=gpt-5.6-luna
 TONE_MODEL=gpt-5.6-luna
-EXPERIMENT_PHASE_SECONDS=240
+EXPERIMENT_PHASE_SECONDS=420
 EXPERIMENT_ADMIN_CODE=ローカル用の管理コード
 ```
 
@@ -205,7 +205,7 @@ PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行
 
 ### PCで起動している間だけインターネット公開する
 
-現在のUI、Cookie、4分タイマー、実験APIをそのまま使うため、GradioへのUI移植ではなくCloudflare Quick Tunnelを使います。ローカルのFastAPIへ一時的なHTTPS URLをつなぐ方式で、Cloudflareアカウントや独自ドメインは不要です。
+現在のUI、Cookie、7分タイマー、実験APIをそのまま使うため、GradioへのUI移植ではなくCloudflare Quick Tunnelを使います。ローカルのFastAPIへ一時的なHTTPS URLをつなぐ方式で、Cloudflareアカウントや独自ドメインは不要です。
 
 初回だけ、PowerShellでCloudflare公式配布の `cloudflared.exe` を `.tools/` へ取得します。システム全体へのインストールや管理者権限は不要です。
 
@@ -294,7 +294,7 @@ Invoke-RestMethod `
 | `STYLE_EXAMPLES_PATH` | `data/gyaru_rag_documents.jsonl` | 口調Few-shotデータ |
 | `PRINCIPLE_RAG_TOP_K` | `5` | ADVICE/SYMPATHYで参照する原則資料数 |
 | `PRINCIPLE_RAG_PATH` | `data/gyaru_principles_rag.jsonl` | ギャル原則RAG資料 |
-| `EXPERIMENT_PHASE_SECONDS` | `240` | SIMPLEとFULLそれぞれの制限時間（秒） |
+| `EXPERIMENT_PHASE_SECONDS` | `420` | SIMPLEとFULLそれぞれの制限時間（秒） |
 | `EXPERIMENT_ADMIN_CODE` | なし | CSV出力と現在端末のリセットに使う管理コード |
 | `EXPERIMENT_DEVICE_SECRET` | 未設定時はAPIキー等から導出 | 匿名端末Cookieの署名用Secret。本番では固定値を設定 |
 | `EXPERIMENT_DB_PATH` | `.data/experiment_logs.db` | 実験状態と研究ログを保存するSQLiteファイル |

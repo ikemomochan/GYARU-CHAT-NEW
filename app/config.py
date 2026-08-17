@@ -136,7 +136,7 @@ def get_settings() -> Settings:
             "CHAT_RATE_WINDOW_SECONDS", 60
         ),
         experiment_phase_seconds=_positive_int(
-            "EXPERIMENT_PHASE_SECONDS", 240
+            "EXPERIMENT_PHASE_SECONDS", 420
         ),
         experiment_admin_code=os.getenv("EXPERIMENT_ADMIN_CODE", "").strip(),
         experiment_device_secret=os.getenv(

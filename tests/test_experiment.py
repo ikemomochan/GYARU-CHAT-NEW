@@ -22,13 +22,13 @@ def test_experiment_has_two_independent_four_minute_phases(tmp_path) -> None:
     clock = FakeClock()
     store = ExperimentStore(tmp_path / "experiment.db", clock=clock)
 
-    waiting = store.status("device", 240)
-    simple = store.start("device", 240)
-    clock.advance(240)
-    transition = store.status("device", 240)
-    full = store.advance_to_full("device", 240)
-    clock.advance(240)
-    complete = store.status("device", 240)
+    waiting = store.status("device", 420)
+    simple = store.start("device", 420)
+    clock.advance(420)
+    transition = store.status("device", 420)
+    full = store.advance_to_full("device", 420)
+    clock.advance(420)
+    complete = store.status("device", 420)
 
     assert waiting.phase is ExperimentPhase.WAITING
     assert simple.phase is ExperimentPhase.SIMPLE
@@ -39,7 +39,7 @@ def test_experiment_has_two_independent_four_minute_phases(tmp_path) -> None:
 
 def test_phase_histories_and_export_remain_separate(tmp_path) -> None:
     store = ExperimentStore(tmp_path / "experiment.db")
-    state = store.start("device", 240)
+    state = store.start("device", 420)
     store.append_turn(state.experiment_id, ExperimentPhase.SIMPLE, "前半U", "前半A")
     store.append_turn(state.experiment_id, ExperimentPhase.FULL, "後半U", "後半A")
 
@@ -58,7 +58,7 @@ def test_phase_histories_and_export_remain_separate(tmp_path) -> None:
 
 def test_csv_export_neutralizes_spreadsheet_formulas(tmp_path) -> None:
     store = ExperimentStore(tmp_path / "experiment.db")
-    state = store.start("device", 240)
+    state = store.start("device", 420)
     store.append_turn(
         state.experiment_id,
         ExperimentPhase.SIMPLE,
