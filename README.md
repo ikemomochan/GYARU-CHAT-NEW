@@ -203,6 +203,26 @@ PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行
 
 接続できない場合は、Windowsのネットワーク設定で信頼できる自宅Wi-Fiのプロファイルが「プライベート」になっているか確認し、Windows Defenderファイアウォールの確認画面ではプライベートネットワーク上のPythonを許可します。公共Wi-Fiでは公開しないでください。
 
+### PCで起動している間だけインターネット公開する
+
+現在のUI、Cookie、4分タイマー、実験APIをそのまま使うため、GradioへのUI移植ではなくCloudflare Quick Tunnelを使います。ローカルのFastAPIへ一時的なHTTPS URLをつなぐ方式で、Cloudflareアカウントや独自ドメインは不要です。
+
+初回だけ、PowerShellでCloudflare公式配布の `cloudflared.exe` を `.tools/` へ取得します。システム全体へのインストールや管理者権限は不要です。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_public_access.ps1
+```
+
+次の1コマンドでローカルサーバーと公開トンネルを起動します。
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_public.ps1
+```
+
+ターミナルに表示された `https://...trycloudflare.com` を参加者へ共有します。URL発行直後はDNS反映に少し時間がかかる場合があるため、開けないときは10〜30秒待ってから再読み込みしてください。`Ctrl+C` を押すかPCを停止すると公開も終了します。スクリプト実行前からローカルサーバーが動いていた場合、そのサーバーは終了しません。
+
+Quick TunnelのURLは起動ごとに変わり、URLを知っている人はアクセスできます。管理コードは共有しないでください。この方式は短時間の実験・デモ向けで、安定運用や固定URLが必要な場合はRenderまたは認証付きのNamed Tunnelを使います。
+
 ## Renderへ公開する
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fikemomochan%2FGYARU-CHAT-NEW%2Ftree%2FEXP01-system)
@@ -259,6 +279,8 @@ Invoke-RestMethod `
 - `app/memory.py`: 現在の返信経路では使わない旧Mem0実装
 - `app/conversation.py`: 現在の返信経路では使わない旧要約実装
 - `app/static/`: 既存DM風UI
+- `scripts/setup_public_access.ps1`: 一時公開用Cloudflare Tunnelの初回セットアップ
+- `scripts/start_public.ps1`: ローカルサーバーと一時公開URLの起動・終了
 
 ## 設定
 
