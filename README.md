@@ -36,7 +36,7 @@ Strategy Selectorは毎ターン構造化出力で戦略を一つ選びます。
 
 ## Session State
 
-状態はサーバープロセス内のメモリに、ユーザーIDと会話IDの組み合わせごとに保持されます。
+現行手法条件の状態は、サーバープロセス内のメモリにユーザーIDと会話IDの組み合わせごとに保持されます。
 
 ```json
 {
@@ -48,7 +48,7 @@ Strategy Selectorは毎ターン構造化出力で戦略を一つ選びます。
 }
 ```
 
-ブラウザが保持する会話履歴も毎ターンSelectorへ渡します。Session Stateは長期記憶ではなく、サーバー再起動またはUIの「履歴を消す」で破棄されます。
+実験中にモデルへ渡す履歴は、ブラウザから受け取った内容を信用せず、サーバーが現在の実験IDと条件から組み立てます。Session Stateは長期記憶ではなく、実験条件ごとに異なる会話IDを使います。
 
 ## Mem0とRAG
 
@@ -65,6 +65,73 @@ RAGは用途別に分かれています。
 
 SelectorとGeneratorは `LanguageModel` Protocolだけに依存します。現在はOpenAIアダプターを実装しています。将来Qwen、Gemma、Swallowなどを使う場合は、同じProtocolを実装するアダプターを `app/providers/` に追加します。fine-tuningは前提としていません。
 
+## 実験システム設計
+
+同じ参加者が、単純なプロンプトだけの条件と現行手法の条件を順番に体験する、2フェーズの比較実験です。注意書き画面と入力回数制限は使用しません。
+
+```text
+WAITING
+  │ 最初のメッセージを送信
+  ▼
+SIMPLE（4分）
+  │ 時間終了
+  ▼
+TRANSITION（入力停止）
+  │ 「後半を始める」
+  │ UI履歴・モデル履歴を初期化
+  ▼
+FULL（4分）
+  │ 時間終了
+  ▼
+COMPLETE（入力停止）
+```
+
+タイマーはブラウザではなくサーバー時刻を正とします。画面は `/api/experiment/status` を定期的に取得して残り時間と状態を表示します。前半のタイマーは最初のメッセージをサーバーが受け付けた時点、後半は参加者が「後半を始める」を押した時点から開始します。前半終了後の遷移画面に時間制限はありません。
+
+### 実験条件
+
+| 条件 | System Prompt | 使用する処理 |
+| --- | --- | --- |
+| `SIMPLE` | `あなたはギャルです` の1文だけ | 通常の会話履歴と1回の応答生成のみ。Strategy Selector、原則RAG、口調補正は使わない |
+| `FULL` | 現行のりりめろ用Prompt | Session State、Strategy Selector、Gyaru Principles、必要時の原則RAG、Response Generator、Few-shot Tone Correctorを使う |
+
+現在は全参加者が `SIMPLE` → `FULL` の固定順です。比較実験として使う場合は、順序効果を避けるため条件順を参加者ごとに入れ替える設計も検討してください。
+
+### 会話履歴と研究ログの分離
+
+会話履歴には二つの用途があり、別々に扱います。
+
+- モデル用履歴: 現在の条件の発話だけを取得する。`FULL` 開始時には空になり、`SIMPLE` の発話は一切渡さない
+- 研究ログ: 条件を切り替えても削除せず、実装者が後からCSVで確認できるように保存する
+
+ブラウザ側も条件切替時に表示履歴を消し、新しい会話IDを発行します。サーバー側では条件ごとに履歴を検索し、異なる会話IDでSession Stateを管理するため、ブラウザを改変して古い履歴を送っても後半条件には混ざりません。
+
+### 識別・保存データ
+
+初回アクセス時にランダムな匿名端末IDを作り、署名付きHttpOnly Cookieへ保存します。名前やIPアドレスは研究ログへ保存しません。
+
+SQLiteの `experiments` テーブルには、実験ID、匿名端末ID、作成時刻、各条件の開始時刻を保存します。`experiment_messages` テーブルには、条件、話者、発話本文、記録時刻と次のメタデータを保存します。
+
+- 実験条件名
+- 選択Strategyと内部の選択理由
+- Safety判定
+- Few-shot例と原則RAGの取得件数
+- 応答生成時の警告
+
+初期保存先は `.data/experiment_logs.db` です。モデル用履歴を消しても、この研究ログは残ります。
+
+### 実験API
+
+| Method | Path | 用途 |
+| --- | --- | --- |
+| `GET` | `/api/experiment/status` | 現在のフェーズと残り秒数を取得 |
+| `POST` | `/api/chat` | 現在の条件で応答し、成功した対話を記録 |
+| `POST` | `/api/experiment/advance` | `TRANSITION` から `FULL` へ進む |
+| `GET` | `/api/experiment/admin/export` | 全実験ログをCSVで取得。管理コード必須 |
+| `POST` | `/api/experiment/admin/reset-current` | 現在の端末の実験とログを削除してやり直す。管理コード必須 |
+
+管理APIは `X-Admin-Code` ヘッダーを使い、`.env` の `EXPERIMENT_ADMIN_CODE` と一致した場合だけ実行されます。
+
 ## セットアップ
 
 Python 3.11以降を推奨します。
@@ -73,9 +140,10 @@ Python 3.11以降を推奨します。
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-`.env` を設定します。
+作成した `.env` を開き、最低限 `OPENAI_API_KEY` を設定します。ローカルでCSV出力や実験リセットも試す場合は、任意の長い管理コードも設定します。
 
 ```dotenv
 OPENAI_API_KEY=sk-...
@@ -83,15 +151,42 @@ LLM_PROVIDER=openai
 STRATEGY_MODEL=gpt-5.6-luna
 RESPONSE_MODEL=gpt-5.6-luna
 TONE_MODEL=gpt-5.6-luna
+EXPERIMENT_PHASE_SECONDS=240
+EXPERIMENT_ADMIN_CODE=ローカル用の管理コード
 ```
 
-起動:
+### ローカル起動
+
+リポジトリのルートで次を実行します。
 
 ```powershell
-uvicorn app.main:app --reload
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ブラウザで <http://127.0.0.1:8000> を開きます。
+
+動作確認だけ短時間で行いたい場合は、`.env` の `EXPERIMENT_PHASE_SECONDS=30` などに変更してサーバーを再起動します。
+
+ローカルの実験ログをCSVへ書き出すコマンド:
+
+```powershell
+$headers = @{ "X-Admin-Code" = "ローカル用の管理コード" }
+Invoke-WebRequest `
+  -Uri "http://127.0.0.1:8000/api/experiment/admin/export" `
+  -Headers $headers `
+  -OutFile "ririmero-experiment.csv"
+```
+
+現在のブラウザで実験を最初からやり直すコマンド:
+
+```powershell
+$headers = @{ "X-Admin-Code" = "ローカル用の管理コード" }
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8000/api/experiment/admin/reset-current" `
+  -Headers $headers
+```
 
 ### スマートフォンから開く
 
@@ -122,17 +217,7 @@ PCとスマートフォンを同じWi-Fiへ接続し、PowerShellで次を実行
 
 Free Web Serviceは無通信時にスリープするため、最初のアクセスに時間がかかる場合があります。またSession Stateはプロセス内だけにあるため、スリープ、再起動、再デプロイで消えます。
 
-### 2フェーズ対話実験
-
-- 最初の送信から4分間は、System Promptが「あなたはギャルです」だけの単純条件です。
-- 4分経過後は入力を停止し、参加者が「後半を始める」を押すまで待機します。
-- 後半開始時に画面履歴とモデルへ渡す履歴を削除し、現在のStrategy / RAG / 口調補正を使う条件へ切り替えます。
-- 後半も4分経過すると入力を停止し、実験を終了します。
-- 各フェーズの時間は `EXPERIMENT_PHASE_SECONDS` で変更できます。既定値は240秒です。
-
-現在は全参加者が単純条件→提案手法条件の固定順です。比較実験として使う場合は、順序効果を避けるため条件順を参加者ごとに入れ替える設計も検討してください。
-
-モデルへ渡す会話履歴と研究ログは分離しています。切替時に会話履歴を削除しても、研究ログには `SIMPLE` / `FULL` の条件名、発話、Strategy、RAG件数などが残ります。IPアドレスや入力された名前は保存しません。
+### 実験ログの取得
 
 RenderのEnvironment画面で `EXPERIMENT_ADMIN_CODE` をSecretとして設定してください。`EXPERIMENT_DEVICE_SECRET` はBlueprintが自動生成します。ログは次のようにCSVで取得できます。
 
@@ -187,6 +272,10 @@ Invoke-RestMethod `
 | `STYLE_EXAMPLES_PATH` | `data/gyaru_rag_documents.jsonl` | 口調Few-shotデータ |
 | `PRINCIPLE_RAG_TOP_K` | `5` | ADVICE/SYMPATHYで参照する原則資料数 |
 | `PRINCIPLE_RAG_PATH` | `data/gyaru_principles_rag.jsonl` | ギャル原則RAG資料 |
+| `EXPERIMENT_PHASE_SECONDS` | `240` | SIMPLEとFULLそれぞれの制限時間（秒） |
+| `EXPERIMENT_ADMIN_CODE` | なし | CSV出力と現在端末のリセットに使う管理コード |
+| `EXPERIMENT_DEVICE_SECRET` | 未設定時はAPIキー等から導出 | 匿名端末Cookieの署名用Secret。本番では固定値を設定 |
+| `EXPERIMENT_DB_PATH` | `.data/experiment_logs.db` | 実験状態と研究ログを保存するSQLiteファイル |
 | `OPENAI_API_KEY` | なし | OpenAIアダプターのAPIキー |
 | `OPENAI_REASONING_EFFORT` | `low` | OpenAIモデルのreasoning effort |
 | `MAX_OUTPUT_TOKENS` | `1000` | 各モデル呼び出しの最大出力トークン |
@@ -197,7 +286,7 @@ Invoke-RestMethod `
 ## テスト
 
 ```powershell
-pytest
+.\.venv\Scripts\python.exe -m pytest
 ```
 
 テストでは実際のLLM APIを呼びません。
