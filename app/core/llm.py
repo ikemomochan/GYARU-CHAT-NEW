@@ -34,7 +34,7 @@ class LanguageModel(Protocol):
         model: str,
         system_prompt: str,
         messages: Sequence[ModelMessage],
-        max_output_tokens: int,
+        max_output_tokens: int | None,
         safety_identifier: str,
     ) -> str: ...
 

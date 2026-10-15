@@ -117,6 +117,7 @@ def test_ui_and_public_config_are_available_without_api_key(monkeypatch) -> None
     assert "app.js?v=english-ui-20260906" in index.text
     assert config.status_code == 200
     assert config.json()["llm_provider"] == "openai"
+    assert config.json()["rag_enabled"] is False
     assert config.json()["api_key_configured"] is False
 
 
@@ -176,7 +177,7 @@ def test_unlimited_chat_uses_full_service_server_history_and_exports_logs(
     assert export.status_code == 200
     assert "最初の発話" in export.text
     assert "次の発話" in export.text
-    assert "full_dialogue_architecture" in export.text
+    assert "prompt_ablation_no_rag_no_tone" in export.text
 
 
 def test_conversation_ids_have_separate_server_histories(monkeypatch, tmp_path) -> None:

@@ -41,61 +41,21 @@ class FakeResponseGenerator:
         return "そうなんだ。何があったの？"
 
 
-class FakeToneCorrector:
-    def __init__(self) -> None:
-        self.calls = []
-
-    def correct(self, **kwargs):
-        self.calls.append(kwargs)
-        return "そーなんだ。何あったん？"
-
-
-class FakePrincipleRetriever:
-    def __init__(self) -> None:
-        self.queries = []
-
-    def retrieve_context(self, query: str):
-        self.queries.append(query)
-        return ["自分の意思を大切にする"]
-
-
-class FakeFewShotRetriever:
-    def __init__(self) -> None:
-        self.calls = []
-
-    def retrieve_examples(self, query: str, top_k: int):
-        self.calls.append((query, top_k))
-        return [{"input": "そうなんだ", "output": "そーなんだ"}]
-
-
 def build_service(strategy: DialogueStrategy = DialogueStrategy.LISTEN):
     selector = FakeStrategySelector(strategy)
     generator = FakeResponseGenerator()
-    tone_corrector = FakeToneCorrector()
-    principle_retriever = FakePrincipleRetriever()
-    few_shot_retriever = FakeFewShotRetriever()
     store = InMemorySessionStore()
     service = ChatService(
         settings=replace(get_settings(), openai_api_key="test-key"),
         session_store=store,
         strategy_selector=selector,
         response_generator=generator,
-        tone_corrector=tone_corrector,
-        principle_retriever=principle_retriever,
-        few_shot_retriever=few_shot_retriever,
     )
-    return (
-        service,
-        selector,
-        generator,
-        tone_corrector,
-        principle_retriever,
-        few_shot_retriever,
-    )
+    return service, selector, generator
 
 
-def test_chat_generates_then_corrects_tone_and_commits_final_reply() -> None:
-    service, selector, generator, corrector, principles, few_shots = build_service()
+def test_chat_returns_generated_reply_without_rag_or_tone_correction() -> None:
+    service, selector, generator = build_service()
     request = ChatRequest(
         message="研究が行き詰まってる",
         user_id="user-1",
@@ -105,9 +65,9 @@ def test_chat_generates_then_corrects_tone_and_commits_final_reply() -> None:
 
     result = asyncio.run(service.reply(request))
 
-    assert result.reply == "そーなんだ。何あったん？"
+    assert result.reply == "そうなんだ。何があったの？"
     assert result.recalled_memories == 0
-    assert result.retrieved_examples == 1
+    assert result.retrieved_examples == 0
     assert result.retrieved_principles == 0
     assert "reason" not in result.model_dump()
     assert selector.calls[0]["history"] == [
@@ -115,13 +75,6 @@ def test_chat_generates_then_corrects_tone_and_commits_final_reply() -> None:
     ]
     assert generator.calls[0]["selection"].strategy is DialogueStrategy.LISTEN
     assert generator.calls[0]["retrieved_context"] == []
-    assert corrector.calls[0]["draft"] == "そうなんだ。何があったの？"
-    assert corrector.calls[0]["strategy"] is DialogueStrategy.LISTEN
-    assert corrector.calls[0]["examples"] == [
-        {"input": "そうなんだ", "output": "そーなんだ"}
-    ]
-    assert principles.queries == []
-    assert few_shots.calls[0][1] == service.settings.style_top_k
 
     state = service.get_session_state("user-1", "conversation-1")
     assert state.topic == "研究"
@@ -161,8 +114,8 @@ def test_next_strategy_selection_receives_previous_strategy_history() -> None:
     "strategy",
     [DialogueStrategy.ADVICE, DialogueStrategy.SYMPATHY],
 )
-def test_advice_and_sympathy_use_the_same_principle_rag(strategy) -> None:
-    service, _, generator, _, principles, _ = build_service(strategy)
+def test_advice_and_sympathy_do_not_use_external_context(strategy) -> None:
+    service, _, generator = build_service(strategy)
 
     result = asyncio.run(
         service.reply(
@@ -174,13 +127,9 @@ def test_advice_and_sympathy_use_the_same_principle_rag(strategy) -> None:
         )
     )
 
-    assert len(principles.queries) == 1
-    assert "仕事を抱えすぎてる" in principles.queries[0]
-    assert generator.calls[0]["retrieved_context"] == [
-        "自分の意思を大切にする"
-    ]
-    assert result.retrieved_examples == 1
-    assert result.retrieved_principles == 1
+    assert generator.calls[0]["retrieved_context"] == []
+    assert result.retrieved_examples == 0
+    assert result.retrieved_principles == 0
 
 
 def test_reset_session_only_clears_requested_conversation() -> None:

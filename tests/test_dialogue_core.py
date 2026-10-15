@@ -81,7 +81,7 @@ def test_strategy_selector_receives_history_state_and_principles() -> None:
 
 def test_response_generator_only_receives_dialogue_inputs() -> None:
     llm = FakeLanguageModel()
-    generator = ResponseGenerator(llm, "response-model", 1000)
+    generator = ResponseGenerator(llm, "response-model")
     state = SessionState(
         topic="上司との関係",
         known_context="上司と噛み合わない",
@@ -120,7 +120,7 @@ def test_response_generator_only_receives_dialogue_inputs() -> None:
     assert COMMON_RESPONSE_PROMPT in prompt
     assert STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.LISTEN] in prompt
     assert STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.ADVICE] not in prompt
-    assert llm.text_calls[0]["max_output_tokens"] == 120
+    assert llm.text_calls[0]["max_output_tokens"] is None
 
 
 def test_response_prompt_is_selected_per_strategy() -> None:

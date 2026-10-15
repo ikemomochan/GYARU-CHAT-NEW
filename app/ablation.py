@@ -26,7 +26,6 @@ from app.dialogue_prompts.response_prompt import (
     STRATEGY_RESPONSE_PROMPTS,
 )
 from app.dialogue_prompts.strategy_prompt import STRATEGY_SYSTEM_PROMPT
-from app.dialogue_prompts.tone_prompt import TONE_SYSTEM_PROMPT
 from app.schemas import ChatMessage, ChatRequest, ChatResponse
 
 
@@ -89,7 +88,6 @@ def write_prompt_snapshots(run_directory: Path) -> None:
         "response_system_prompt.txt": RESPONSE_SYSTEM_PROMPT,
         "common_response_prompt.txt": COMMON_RESPONSE_PROMPT,
         "strategy_selector_prompt.txt": STRATEGY_SYSTEM_PROMPT,
-        "tone_system_prompt.txt": TONE_SYSTEM_PROMPT,
     }
     for filename, prompt in text_snapshots.items():
         (run_directory / filename).write_text(prompt, encoding="utf-8")
@@ -151,13 +149,15 @@ async def run_ablation(
         "models": {
             "strategy": settings.strategy_model,
             "response": settings.response_model,
-            "tone": settings.tone_model,
-            "embedding": settings.embedding_model,
+        },
+        "pipeline": {
+            "rag": False,
+            "external_advice_context": False,
+            "tone_correction": False,
+            "response_max_output_tokens": None,
         },
         "reasoning_effort": settings.reasoning_effort,
-        "max_output_tokens": settings.max_output_tokens,
-        "style_top_k": settings.style_top_k,
-        "principle_rag_top_k": settings.principle_rag_top_k,
+        "strategy_max_output_tokens": min(settings.max_output_tokens, 800),
     }
     _write_json(run_directory / "run_metadata.json", metadata)
     _write_json(

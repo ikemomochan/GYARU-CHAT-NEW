@@ -15,11 +15,9 @@ class ResponseGenerator:
         self,
         llm: LanguageModel,
         model: str,
-        max_output_tokens: int,
     ) -> None:
         self.llm = llm
         self.model = model
-        self.max_output_tokens = max_output_tokens
 
     def generate(
         self,
@@ -48,7 +46,8 @@ class ResponseGenerator:
                     ),
                 }
             ],
-            max_output_tokens=min(self.max_output_tokens, 120),
+            # Do not impose an explicit output cap during prompt ablations.
+            max_output_tokens=None,
             safety_identifier=safety_identifier,
         ).strip()
         if not response:

@@ -2,7 +2,7 @@
 
 「りりめろ」は、話を聞き、必要なことだけを尋ね、状況が十分に分かったときにギャルの価値観から率直な視点を返す対話AIです。
 
-`YANS-system` は通常利用版です。実験用の前半・後半、7分タイマー、総メッセージ回数制限はありません。すべての応答でフル対話アーキテクチャを使い、成功した会話をローカルSQLiteへ保存します。
+`prompt_ab-20261015` ではPromptアブレーションのため、RAGと口調補正を一時的に無効化しています。成功した会話はローカルSQLiteへ保存します。
 
 ## 対話フロー
 
@@ -17,12 +17,10 @@ LISTEN / ADVICE / SYMPATHY
         ↓
 Gyaru Principles
         ↓
-Principle RAG（ADVICE / SYMPATHYのみ）
-        ↓
 Response Generator
-        ↓
-Few-shot Tone Corrector
 ```
+
+現在の実験経路では、Few-shot RAG、ADVICE／SYMPATHY用の原則RAG、Tone Correctorを呼びません。Response Generatorの出力をそのまま最終回答にし、Responses APIへ明示的な `max_output_tokens` も送りません。Strategy Selectorの構造化出力には内部処理用の上限があります。
 
 - `LISTEN`: 軽く共感し、状況を理解するための質問を一つ行う
 - `ADVICE`: 状況を十分理解したら、率直な助言や行動の提案を返す
@@ -46,7 +44,7 @@ Few-shot Tone Corrector
 - ユーザー発言とAI応答
 - 会話・発言時刻
 - Strategy、内部の選択理由、Safety判定
-- Few-shot例と原則RAGの取得件数、応答生成時の警告
+- RAG取得件数（現在は常に0）、応答生成時の警告
 
 会話を収集する場合は、利用者へ保存目的・保存期間・閲覧者・削除方法を事前に案内してください。
 
@@ -56,7 +54,7 @@ Few-shot Tone Corrector
 | --- | --- | --- |
 | `GET` | `/api/health` | 稼働確認 |
 | `GET` | `/api/config` | 公開設定の取得 |
-| `POST` | `/api/chat` | フル対話アーキテクチャで応答し、成功した対話を保存 |
+| `POST` | `/api/chat` | RAG・口調補正なしの実験経路で応答し、成功した対話を保存 |
 | `GET` | `/api/admin/export` | 通常会話ログをCSVで取得。管理コード必須 |
 | `GET` | `/api/experiment/admin/export` | 旧 `.data/experiment_logs.db` をCSVで取得する互換API |
 
@@ -99,7 +97,7 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ## コンソールで試す
 
-Web UIやサーバーを起動せず、既存のフル対話アーキテクチャを直接試せます。
+Web UIやサーバーを起動せず、現在の実験用対話経路を直接試せます。
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.console
@@ -123,15 +121,15 @@ Web UIやサーバーを起動せず、既存のフル対話アーキテクチ�
 
 1回の実行で10ターンを10周し、各周の開始時に会話履歴とSession Stateをリセットします。結果は `.data/prompt_ablation_runs/YYYYMMDD-HHMMSS/` に保存されます。
 
-通常は1応答につきStrategy Selector、Response Generator、Tone Correctorの3回GPTを呼ぶため、100応答では約300回のGPT呼び出しに加えてRAG用Embedding呼び出しが発生します。連続LISTENの補正時はStrategy Selectorが追加で呼ばれる場合があります。
+1応答につきStrategy SelectorとResponse Generatorの2回GPTを呼ぶため、100応答では通常約200回のGPT呼び出しが発生します。RAG用Embeddingは呼びません。連続LISTENの補正時はStrategy Selectorが追加で呼ばれる場合があります。
 
 - `conversations.jsonl`: 全100ターンの入力、応答、送信時の履歴、選択戦略、選択理由、安全判定
 - `responses.jsonl`: Distinct-Nなどの集計に使いやすい応答と選択戦略
-- `run_metadata.json`: モデル、Embedding、周回数、完了件数、実行状態
+- `run_metadata.json`: 使用モデル、無効化した処理、周回数、完了件数、実行状態
 - `user_inputs.json`: 実行時に使った固定入力のコピー
 - `response_system_prompt.txt` / `common_response_prompt.txt`: Response Promptのスナップショット
 - `strategy_response_prompts.json`: LISTEN / ADVICE / SYMPATHY別Prompt
-- `strategy_selector_prompt.txt` / `tone_system_prompt.txt`: 戦略選択と口調補正Prompt
+- `strategy_selector_prompt.txt`: 戦略選択Prompt
 - `safety_response_prompts.json`: Safety Level別の追加Prompt
 
 動作確認などで周回数だけ変える場合は `--rounds` を指定できます。
@@ -197,7 +195,7 @@ Invoke-WebRequest `
 ## 主なファイル
 
 - `app/main.py`: FastAPI、無制限チャット、管理者CSV API
-- `app/chat.py`: フル対話サービス
+- `app/chat.py`: Strategy SelectorとResponse Generatorをつなぐ実験用対話サービス
 - `app/console.py`: UIなしで試す対話型・ワンショットCLI
 - `app/ablation.py`: 固定10ターンを10周するPrompt実験ランナー
 - `app/core/chat_log.py`: 通常会話ログ、会話履歴取得、CSV出力
@@ -212,7 +210,8 @@ Invoke-WebRequest `
 | `OPENAI_API_KEY` | なし | OpenAI APIキー |
 | `STRATEGY_MODEL` | `gpt-6-luna` | Strategy Selector |
 | `RESPONSE_MODEL` | `gpt-6-luna` | Response Generator |
-| `TONE_MODEL` | `gpt-6-luna` | Tone Corrector |
+| `TONE_MODEL` | `gpt-6-luna` | 現在の実験経路では未使用 |
+| `MAX_OUTPUT_TOKENS` | `1000` | Strategy Selector等の内部処理用。最終応答には未指定 |
 | `CHAT_RATE_LIMIT` | `12` | レート窓内の最大メッセージ数 |
 | `CHAT_RATE_WINDOW_SECONDS` | `60` | レート制限の時間窓 |
 | `CHAT_HISTORY_LIMIT` | `12` | モデルへ渡す直近履歴数 |

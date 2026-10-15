@@ -109,7 +109,12 @@ def test_run_ablation_logs_all_rounds_and_resets_history(tmp_path) -> None:
     assert metadata["status"] == "completed"
     assert metadata["expected_responses"] == 20
     assert metadata["completed_responses"] == 20
-    assert metadata["models"]["embedding"] == "text-embedding-3-small"
+    assert metadata["pipeline"] == {
+        "rag": False,
+        "external_advice_context": False,
+        "tone_correction": False,
+        "response_max_output_tokens": None,
+    }
     assert (
         tmp_path / "common_response_prompt.txt"
     ).read_text(encoding="utf-8") == COMMON_RESPONSE_PROMPT

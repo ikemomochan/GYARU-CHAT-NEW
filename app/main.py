@@ -91,7 +91,7 @@ async def public_config() -> PublicConfig:
         strategy_model=settings.strategy_model,
         response_model=settings.response_model,
         tone_model=settings.tone_model,
-        rag_enabled=True,
+        rag_enabled=False,
         chat_model=settings.chat_model,
         style_model=settings.style_model,
         memory_model=settings.memory_model,
@@ -194,7 +194,7 @@ async def chat(
         chat_request.message,
         chat_response.reply,
         metadata={
-            "mode": "full_dialogue_architecture",
+            "mode": "prompt_ablation_no_rag_no_tone",
             "strategy": chat_response.strategy,
             "strategy_reason": chat_response.strategy_reason,
             "safety_level": chat_response.safety_level,

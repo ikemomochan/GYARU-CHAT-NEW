@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence, TypeVar
+from typing import Any, Sequence, TypeVar
 
 from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
 from pydantic import BaseModel
@@ -27,18 +27,20 @@ class OpenAILanguageModel:
         model: str,
         system_prompt: str,
         messages: Sequence[ModelMessage],
-        max_output_tokens: int,
+        max_output_tokens: int | None,
         safety_identifier: str,
     ) -> str:
+        request: dict[str, Any] = {
+            "model": model,
+            "instructions": system_prompt,
+            "input": list(messages),
+            "reasoning": {"effort": self.reasoning_effort},
+            "safety_identifier": safety_identifier,
+        }
+        if max_output_tokens is not None:
+            request["max_output_tokens"] = max_output_tokens
         try:
-            response = self.client.responses.create(
-                model=model,
-                instructions=system_prompt,
-                input=list(messages),
-                reasoning={"effort": self.reasoning_effort},
-                max_output_tokens=max_output_tokens,
-                safety_identifier=safety_identifier,
-            )
+            response = self.client.responses.create(**request)
         except RateLimitError as exc:
             raise LanguageModelRateLimitError from exc
         except APITimeoutError as exc:
