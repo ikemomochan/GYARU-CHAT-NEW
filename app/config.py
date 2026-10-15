@@ -69,9 +69,9 @@ class Settings:
     principle_rag_top_k: int
     chat_rate_limit: int
     chat_rate_window_seconds: int
-    experiment_phase_seconds: int
-    experiment_admin_code: str
-    experiment_device_secret: str
+    chat_admin_code: str
+    chat_device_secret: str
+    chat_log_db_path: Path
     chat_history_limit: int
     summary_trigger_messages: int
     max_output_tokens: int
@@ -102,7 +102,7 @@ def get_settings() -> Settings:
     if not llm_provider:
         raise ValueError("LLM_PROVIDER must not be blank")
 
-    legacy_chat_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-5.6-luna")
+    legacy_chat_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-6-luna")
     reasoning_effort = os.getenv("OPENAI_REASONING_EFFORT", "low").lower()
     allowed_efforts = {"none", "low", "medium", "high", "xhigh", "max"}
     if reasoning_effort not in allowed_efforts:
@@ -118,9 +118,9 @@ def get_settings() -> Settings:
         tone_model=os.getenv("TONE_MODEL", legacy_chat_model),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         chat_model=legacy_chat_model,
-        style_model=os.getenv("OPENAI_STYLE_MODEL", "gpt-5.6-luna"),
-        memory_model=os.getenv("OPENAI_MEMORY_MODEL", "gpt-5.6-luna"),
-        summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-5.6-luna"),
+        style_model=os.getenv("OPENAI_STYLE_MODEL", "gpt-6-luna"),
+        memory_model=os.getenv("OPENAI_MEMORY_MODEL", "gpt-6-luna"),
+        summary_model=os.getenv("OPENAI_SUMMARY_MODEL", "gpt-6-luna"),
         embedding_model=os.getenv(
             "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
         ),
@@ -135,13 +135,17 @@ def get_settings() -> Settings:
         chat_rate_window_seconds=_positive_int(
             "CHAT_RATE_WINDOW_SECONDS", 60
         ),
-        experiment_phase_seconds=_positive_int(
-            "EXPERIMENT_PHASE_SECONDS", 420
+        chat_admin_code=(
+            os.getenv("CHAT_ADMIN_CODE", "").strip()
+            or os.getenv("EXPERIMENT_ADMIN_CODE", "").strip()
         ),
-        experiment_admin_code=os.getenv("EXPERIMENT_ADMIN_CODE", "").strip(),
-        experiment_device_secret=os.getenv(
-            "EXPERIMENT_DEVICE_SECRET", ""
-        ).strip(),
+        chat_device_secret=(
+            os.getenv("CHAT_DEVICE_SECRET", "").strip()
+            or os.getenv("EXPERIMENT_DEVICE_SECRET", "").strip()
+        ),
+        chat_log_db_path=_path_from_env(
+            "CHAT_LOG_DB_PATH", ".data/chat_logs.db"
+        ),
         chat_history_limit=_positive_int("CHAT_HISTORY_LIMIT", 12),
         summary_trigger_messages=_positive_int("SUMMARY_TRIGGER_MESSAGES", 12),
         max_output_tokens=_positive_int("MAX_OUTPUT_TOKENS", 1000),

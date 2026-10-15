@@ -100,7 +100,7 @@ if (-not (Test-RirimeroServer)) {
 Write-Host ""
 Write-Host "A temporary public URL ending in trycloudflare.com will appear below."
 Write-Host "Share only that HTTPS URL. Press Ctrl+C to close public access."
-Write-Warning "Anyone who knows the URL can access the experiment. Do not share the admin code."
+Write-Warning "Anyone who knows the URL can access this chat. Do not share the admin code."
 Write-Host ""
 
 try {

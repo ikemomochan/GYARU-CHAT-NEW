@@ -14,10 +14,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.chat import ChatService
 from app.config import PROJECT_ROOT, get_settings
+from app.core.chat_log import ChatLogStore
 from app.core.experiment import (
     DeviceCookieSigner,
-    ExperimentPhase,
-    ExperimentState,
     ExperimentStore,
 )
 from app.core.llm import (
@@ -30,10 +29,8 @@ from app.schemas import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
-    ExperimentStatusResponse,
     PublicConfig,
 )
-from app.simple_chat import SimpleGyaruChatService
 
 
 logger = logging.getLogger(__name__)
@@ -41,12 +38,15 @@ settings = get_settings()
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 FIG_DIR = PROJECT_ROOT / "fig"
 RUNTIME_ID = uuid.uuid4().hex
-EXPERIMENT_DEVICE_COOKIE = "ririmero_experiment_device"
+CHAT_DEVICE_COOKIE = "ririmero_chat_device"
 COOKIE_MAX_AGE_SECONDS = 31_536_000
-device_secret = settings.experiment_device_secret or hashlib.sha256(
+device_secret = settings.chat_device_secret or hashlib.sha256(
     (settings.openai_api_key or RUNTIME_ID).encode("utf-8")
 ).hexdigest()
 device_cookie_signer = DeviceCookieSigner(device_secret)
+chat_log_store = ChatLogStore(settings.chat_log_db_path)
+# Normal chat never appends here; the store only exposes previously collected
+# experiment data through the compatibility export endpoint.
 experiment_store = ExperimentStore(settings.experiment_db_path)
 chat_rate_limiter = SlidingWindowRateLimiter(
     limit=settings.chat_rate_limit,
@@ -59,21 +59,15 @@ def get_chat_service() -> ChatService:
     return ChatService(settings)
 
 
-@lru_cache
-def get_simple_chat_service() -> SimpleGyaruChatService:
-    return SimpleGyaruChatService(settings)
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     yield
     if get_chat_service.cache_info().currsize:
         get_chat_service().close()
         get_chat_service.cache_clear()
-    get_simple_chat_service.cache_clear()
 
 
-app = FastAPI(title="Ririmero Experiment Chat", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Ririmero Dialogue Chat", version="0.4.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/fig", StaticFiles(directory=FIG_DIR), name="fig")
 
@@ -109,38 +103,21 @@ async def public_config() -> PublicConfig:
     )
 
 
-@app.get("/api/experiment/status", response_model=ExperimentStatusResponse)
-async def experiment_status(
-    request: Request,
-    response: Response,
-) -> ExperimentStatusResponse:
-    response.headers["Cache-Control"] = "no-store"
-    device_id = _get_or_create_device(request, response)
-    return _status_response(
-        experiment_store.status(device_id, settings.experiment_phase_seconds)
+@app.get("/api/admin/export")
+async def export_chat_logs(
+    admin_code: str | None = Header(default=None, alias="X-Admin-Code"),
+) -> Response:
+    _require_admin(admin_code)
+    filename = time.strftime("ririmero-chat-%Y%m%d-%H%M%S.csv")
+    return Response(
+        content="\ufeff" + chat_log_store.export_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-@app.post("/api/experiment/advance", response_model=ExperimentStatusResponse)
-async def advance_experiment(
-    request: Request,
-    response: Response,
-) -> ExperimentStatusResponse:
-    device_id = _get_or_create_device(request, response)
-    state = experiment_store.advance_to_full(
-        device_id,
-        settings.experiment_phase_seconds,
-    )
-    if state.phase is not ExperimentPhase.FULL:
-        raise HTTPException(
-            status_code=409,
-            detail="前半が終了してから後半へ進めます。",
-        )
-    return _status_response(state)
 
 
 @app.get("/api/experiment/admin/export")
-async def export_experiment_logs(
+async def export_legacy_experiment_logs(
     admin_code: str | None = Header(default=None, alias="X-Admin-Code"),
 ) -> Response:
     _require_admin(admin_code)
@@ -149,23 +126,6 @@ async def export_experiment_logs(
         content="\ufeff" + experiment_store.export_csv(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@app.post(
-    "/api/experiment/admin/reset-current",
-    response_model=ExperimentStatusResponse,
-)
-async def reset_current_experiment(
-    request: Request,
-    response: Response,
-    admin_code: str | None = Header(default=None, alias="X-Admin-Code"),
-) -> ExperimentStatusResponse:
-    _require_admin(admin_code)
-    device_id = _get_or_create_device(request, response)
-    experiment_store.reset_device(device_id)
-    return _status_response(
-        experiment_store.status(device_id, settings.experiment_phase_seconds)
     )
 
 
@@ -190,45 +150,20 @@ async def chat(
             headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
 
-    state = experiment_store.start(device_id, settings.experiment_phase_seconds)
-    if state.phase is ExperimentPhase.TRANSITION:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "experiment_transition",
-                "message": "前半が終了しました。後半へ進んでください。",
-            },
-        )
-    if state.phase is ExperimentPhase.COMPLETE:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "experiment_complete",
-                "message": "実験は終了しました。",
-            },
-        )
-
-    phase = state.phase
-    history = experiment_store.history(
-        state.experiment_id,
-        phase,
+    history = chat_log_store.history(
+        device_id,
+        chat_request.conversation_id,
         settings.chat_history_limit,
     )
     safety_id = hashlib.sha256(device_id.encode("utf-8")).hexdigest()
     effective_request = chat_request.model_copy(
         update={
             "user_id": safety_id,
-            "conversation_id": f"{state.experiment_id}:{phase.value}",
             "history": [ChatMessage(**message) for message in history],
         }
     )
     try:
-        if phase is ExperimentPhase.SIMPLE:
-            chat_response = await get_simple_chat_service().reply(effective_request)
-            condition = "simple_prompt"
-        else:
-            chat_response = await get_chat_service().reply(effective_request)
-            condition = "full_dialogue_architecture"
+        chat_response = await get_chat_service().reply(effective_request)
     except LanguageModelRateLimitError as exc:
         raise HTTPException(
             status_code=429,
@@ -252,13 +187,14 @@ async def chat(
             detail="応答の生成に失敗しました。サーバーログを確認してください。",
         ) from exc
 
-    experiment_store.append_turn(
-        state.experiment_id,
-        phase,
+    chat_log_store.append_turn(
+        device_id,
+        safety_id,
+        chat_request.conversation_id,
         chat_request.message,
         chat_response.reply,
         metadata={
-            "condition": condition,
+            "mode": "full_dialogue_architecture",
             "strategy": chat_response.strategy,
             "strategy_reason": chat_response.strategy_reason,
             "safety_level": chat_response.safety_level,
@@ -267,29 +203,7 @@ async def chat(
             "warnings": chat_response.warnings,
         },
     )
-    current_state = experiment_store.status(
-        device_id,
-        settings.experiment_phase_seconds,
-    )
-    return chat_response.model_copy(
-        update={
-            "experiment_phase": current_state.phase.value,
-            "experiment_remaining_seconds": current_state.remaining_seconds,
-            "experiment_complete": (
-                current_state.phase is ExperimentPhase.COMPLETE
-            ),
-        }
-    )
-
-
-def _status_response(state: ExperimentState) -> ExperimentStatusResponse:
-    return ExperimentStatusResponse(
-        experiment_id=state.experiment_id,
-        phase=state.phase.value,
-        started=state.started,
-        remaining_seconds=state.remaining_seconds,
-        phase_seconds=state.phase_seconds,
-    )
+    return chat_response
 
 
 def _client_key(request: Request, device_id: str) -> str:
@@ -303,13 +217,13 @@ def _client_key(request: Request, device_id: str) -> str:
 
 def _get_or_create_device(request: Request, response: Response) -> str:
     device_id = device_cookie_signer.verify(
-        request.cookies.get(EXPERIMENT_DEVICE_COOKIE)
+        request.cookies.get(CHAT_DEVICE_COOKIE)
     )
     if device_id:
         return device_id
     device_id, token = device_cookie_signer.new_token()
     response.set_cookie(
-        EXPERIMENT_DEVICE_COOKIE,
+        CHAT_DEVICE_COOKIE,
         token,
         max_age=COOKIE_MAX_AGE_SECONDS,
         httponly=True,
@@ -320,11 +234,11 @@ def _get_or_create_device(request: Request, response: Response) -> str:
 
 
 def _require_admin(admin_code: str | None) -> None:
-    configured = settings.experiment_admin_code
+    configured = settings.chat_admin_code
     if not configured:
         raise HTTPException(
             status_code=503,
-            detail="EXPERIMENT_ADMIN_CODE が設定されていません。",
+            detail="CHAT_ADMIN_CODE が設定されていません。",
         )
     if not admin_code or not secrets.compare_digest(admin_code, configured):
         raise HTTPException(status_code=401, detail="管理コードが違います。")

@@ -39,21 +39,9 @@ class ChatResponse(BaseModel):
     retrieved_examples: int
     retrieved_principles: int = 0
     warnings: list[str] = Field(default_factory=list)
-    experiment_phase: str | None = None
-    experiment_remaining_seconds: int | None = None
-    experiment_complete: bool = False
     strategy: str | None = Field(default=None, exclude=True)
     strategy_reason: str | None = Field(default=None, exclude=True)
     safety_level: str | None = Field(default=None, exclude=True)
-
-
-class ExperimentStatusResponse(BaseModel):
-    experiment_id: str
-    phase: Literal["WAITING", "SIMPLE", "TRANSITION", "FULL", "COMPLETE"]
-    started: bool
-    remaining_seconds: int
-    phase_seconds: int
-
 
 class PublicConfig(BaseModel):
     runtime_id: str

@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: free
     region: singapore
-    branch: EXP01-system
+    branch: YANS-system
     buildCommand: pip install -r requirements-render.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
@@ -17,11 +17,11 @@ services:
       - key: LLM_PROVIDER
         value: openai
       - key: STRATEGY_MODEL
-        value: gpt-5.6-luna
+        value: gpt-6-luna
       - key: RESPONSE_MODEL
-        value: gpt-5.6-luna
+        value: gpt-6-luna
       - key: TONE_MODEL
-        value: gpt-5.6-luna
+        value: gpt-6-luna
       - key: OPENAI_EMBEDDING_MODEL
         value: text-embedding-3-small
       - key: OPENAI_REASONING_EFFORT
@@ -42,9 +42,9 @@ services:
         value: "12"
       - key: CHAT_RATE_WINDOW_SECONDS
         value: "60"
-      - key: EXPERIMENT_PHASE_SECONDS
-        value: "420"
-      - key: EXPERIMENT_ADMIN_CODE
+      - key: CHAT_ADMIN_CODE
         sync: false
-      - key: EXPERIMENT_DEVICE_SECRET
+      - key: CHAT_DEVICE_SECRET
         generateValue: true
+      - key: CHAT_LOG_DB_PATH
+        value: .data/chat_logs.db

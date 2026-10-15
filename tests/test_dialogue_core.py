@@ -12,7 +12,11 @@ from app.core.session_state import (
 )
 from app.core.strategy_selector import StrategySelector
 from app.core.tone_corrector import ToneCorrector
-from app.dialogue_prompts.response_prompt import build_response_system_prompt
+from app.dialogue_prompts.response_prompt import (
+    COMMON_RESPONSE_PROMPT,
+    STRATEGY_RESPONSE_PROMPTS,
+    build_response_system_prompt,
+)
 from app.dialogue_prompts.strategy_prompt import STRATEGY_SYSTEM_PROMPT
 from app.dialogue_prompts.tone_prompt import TONE_SYSTEM_PROMPT
 from app.gyaru_principles import GYARU_PRINCIPLES
@@ -113,11 +117,9 @@ def test_response_generator_only_receives_dialogue_inputs() -> None:
     assert "strategy_history" not in payload["session_state"]
     prompt = llm.text_calls[0]["system_prompt"]
     assert prompt == build_response_system_prompt(selection)
-    assert "今回はLISTEN" in prompt
-    assert "友達の話にDM" in prompt
-    assert "質問は会話を続けるためのおまけ" in prompt
-    assert "今回はADVICE" not in prompt
-    assert "人間として同じ経験をしたふり" in prompt
+    assert COMMON_RESPONSE_PROMPT in prompt
+    assert STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.LISTEN] in prompt
+    assert STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.ADVICE] not in prompt
     assert llm.text_calls[0]["max_output_tokens"] == 120
 
 
@@ -136,12 +138,16 @@ def test_response_prompt_is_selected_per_strategy() -> None:
     advice_prompt = build_response_system_prompt(advice)
     sympathy_prompt = build_response_system_prompt(sympathy)
 
-    assert "今回はADVICE" in advice_prompt
-    assert "今回はLISTEN" not in advice_prompt
-    assert "今回はSYMPATHY" in sympathy_prompt
-    assert "今回はLISTEN" not in sympathy_prompt
-    assert "役立つ部分を参考にして" in advice_prompt
-    assert "役立つ部分を参考にして" in sympathy_prompt
+    assert STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.ADVICE] in advice_prompt
+    assert STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.LISTEN] not in advice_prompt
+    assert (
+        STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.SYMPATHY]
+        in sympathy_prompt
+    )
+    assert (
+        STRATEGY_RESPONSE_PROMPTS[DialogueStrategy.LISTEN]
+        not in sympathy_prompt
+    )
 
 
 def test_tone_corrector_uses_few_shots_without_selecting_strategy() -> None:

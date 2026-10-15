@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -7,42 +7,28 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#e8faf7" />
-    <title>GYARU-CHAT Experiment</title>
-    <link rel="stylesheet" href="/static/style.css?v=experiment-20260817" />
+    <title>Ririmero Chat</title>
+    <link rel="stylesheet" href="/static/style.css?v=english-ui-20260906" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div class="avatar" aria-hidden="true">り</div>
+        <div class="avatar" aria-hidden="true">R</div>
         <div class="identity">
-          <h1>りりめろ実験</h1>
+          <h1>Ririmero</h1>
           <p>
             <span class="status-dot"></span>
-            <span id="status-label">接続確認中</span>
+            <span id="status-label">Checking connection...</span>
           </p>
         </div>
-        <div class="timer" aria-label="残り時間">
-          <span id="phase-label">前半</span>
-          <strong id="timer-label">07:00</strong>
-        </div>
+        <button id="new-chat-button" class="new-chat-button" type="button">
+          New chat
+        </button>
       </header>
-
-      <section id="phase-banner" class="phase-banner" aria-live="polite">
-        <strong id="phase-title">前半：シンプルなギャルAI</strong>
-        <span id="phase-help">最初のメッセージ送信で7分タイマーが始まります</span>
-      </section>
 
       <section id="messages" class="messages" aria-live="polite">
         <div class="message-row assistant">
-          <div class="bubble">まずはこのAIと話してみてね。最初の送信でスタートするよ。</div>
-        </div>
-      </section>
-
-      <section id="experiment-gate" class="experiment-gate hidden" aria-live="polite">
-        <div class="experiment-card">
-          <h2 id="experiment-gate-title">前半はここまで</h2>
-          <p id="experiment-gate-message">後半では別のAIに切り替わります。</p>
-          <button id="advance-button" type="button">後半を始める</button>
+          <div class="bubble" lang="ja">やほ〜、今日はどしたん？ ゆっくり話してみてね。</div>
         </div>
       </section>
 
@@ -51,17 +37,18 @@
           id="message-input"
           rows="1"
           maxlength="20000"
-          placeholder="メッセージを入力..."
-          aria-label="メッセージ"
+          lang="ja"
+          placeholder="Type a message..."
+          aria-label="Message"
           required
         ></textarea>
-        <button id="send-button" type="submit" aria-label="送信">
+        <button id="send-button" type="submit" aria-label="Send">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M3.4 20.4 21 12 3.4 3.6l.2 6.5L16 12 3.6 13.9l-.2 6.5Z" />
           </svg>
         </button>
       </form>
     </main>
-    <script src="/static/app.js?v=experiment-20260818" defer></script>
+    <script src="/static/app.js?v=english-ui-20260906" defer></script>
   </body>
 </html>
